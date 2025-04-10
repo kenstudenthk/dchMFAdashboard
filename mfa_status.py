@@ -189,12 +189,12 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
         mfa_data = st.session_state.mfa_data
         error_users = st.session_state.error_users
         
+        # Modified query without $expand
         next_link = (
-    f'https://graph.microsoft.com/v1.0/users'
-    f'?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses,licenseDetails'
-    f'&$expand=licenseDetails'
-    f'&$top={BATCH_SIZE}'
-)
+            f'https://graph.microsoft.com/v1.0/users'
+            f'?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses'
+            f'&$top={BATCH_SIZE}'
+        )
         
         while next_link and processed_count < actual_limit:
             try:
@@ -260,4 +260,3 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
     except Exception as e:
         st.error(f"MFA status error: {str(e)}")
         st.code(traceback.format_exc())
-        return None
