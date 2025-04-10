@@ -109,8 +109,43 @@ def start_processing():
     """Start the processing job"""
     if not st.session_state.job_running:
         st.session_state.job_running = True
-        all_users = get_all_users()  # Your function to get users
-        thread = Thread(target=process_batch, args=(all_users,))
+        total_users = 13000  # Your total user count
+        batch_size = 500  # Your preferred batch size
+        
+        def background_process():
+            try:
+                num_batches = (total_users + batch_size - 1) // batch_size
+                for batch_num in range(num_batches):
+                    if not st.session_state.job_running:
+                        break
+                        
+                    start_idx = batch_num * batch_size
+                    batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
+                    
+                    if batch_df is not None and not batch_df.empty:
+                        if 'processed_df' not in st.session_state:
+                            st.session_state.processed_df = batch_df
+                        else:
+                            st.session_state.processed_df = pd.concat(
+                                [st.session_state.processed_df, batch_df], 
+                                ignore_index=True
+                            )
+                        
+                        st.session_state.progress = (batch_num + 1) / num_batches
+                        st.session_state.current_batch = batch_num + 1
+                        
+                        if batch_num % 5 == 0:
+                            save_progress_to_file()
+                    
+                    time.sleep(1)
+            except Exception as e:
+                st.error(f"Error in background processing: {str(e)}")
+            finally:
+                st.session_state.job_running = False
+                save_progress_to_file()
+        
+        thread = Thread(target=background_process)
+        thread.daemon = True
         thread.start()
 
 def stop_processing():
@@ -119,23 +154,22 @@ def stop_processing():
     save_progress_to_file()
 
 class UserAnalyzer:
-    
     def process_users(self, num_users: int):
-     """Process a specific number of users"""
-    try:
-        st.session_state.processing = True
-        batch_df = get_mfa_status(st.session_state.token, num_users, 0)
-        
-        if batch_df is not None and not batch_df.empty:
-            st.session_state.df = batch_df
-            st.session_state.data_loaded = True
-            self.display_metrics_and_charts(batch_df)
-            st.dataframe(batch_df)
+        """Process a specific number of users"""
+        try:
+            st.session_state.processing = True
+            batch_df = get_mfa_status(st.session_state.token, num_users, 0)
             
-    except Exception as e:
-        st.error(f"Error processing users: {str(e)}")
-    finally:
-        st.session_state.processing = False
+            if batch_df is not None and not batch_df.empty:
+                st.session_state.df = batch_df
+                st.session_state.data_loaded = True
+                self.display_metrics_and_charts(batch_df)
+                st.dataframe(batch_df)
+                
+        except Exception as e:
+            st.error(f"Error processing users: {str(e)}")
+        finally:
+            st.session_state.processing = False
     
     def render_data_collection_tab(self):
       """Render the Data Collection tab"""
