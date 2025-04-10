@@ -265,58 +265,58 @@ def process_users(self, num_users: int):
             st.session_state.job_running = False
 
     def background_processing(self, total_users: int, batch_size: int):
-     """Background processing function"""
-    try:
-        num_batches = (total_users + batch_size - 1) // batch_size
-        processed_count = 0
-        
-        for batch_num in range(num_batches):
-            if not st.session_state.job_running:
-                break
-                
-            start_idx = batch_num * batch_size
-            try:
-                batch_df = get_mfa_status_cached(
-                    token=st.session_state.token,
-                    limit=batch_size,
-                    skip=start_idx
-                )
-                
-                if batch_df is not None and not batch_df.empty:
-                    if st.session_state.processed_df.empty:
-                        st.session_state.processed_df = batch_df
-                    else:
-                        st.session_state.processed_df = pd.concat(
-                            [st.session_state.processed_df, batch_df], 
-                            ignore_index=True
-                        )
-                    processed_count += len(batch_df)
-                
-                # Update progress
-                st.session_state.progress = min((batch_num + 1) / num_batches, 1.0)
-                st.session_state.current_batch = batch_num + 1
-                
-                if batch_num % 5 == 0:
-                    save_progress_to_file()
-                
-                # Add delay to prevent API throttling
-                time.sleep(0.5)
-                
-            except Exception as e:
-                st.session_state.error_users.append({
-                    'batch': batch_num,
-                    'start_idx': start_idx,
-                    'error': str(e),
-                    'timestamp': datetime.now().isoformat()
-                })
-                # Continue processing despite errors
-                continue
-                
-    except Exception as e:
-        st.error(f"Fatal error in background processing: {str(e)}")
-    finally:
-        st.session_state.job_running = False
-        save_progress_to_file()
+        """Background processing function"""
+        try:
+            num_batches = (total_users + batch_size - 1) // batch_size
+            processed_count = 0
+            
+            for batch_num in range(num_batches):
+                if not st.session_state.job_running:
+                    break
+                    
+                start_idx = batch_num * batch_size
+                try:
+                    batch_df = get_mfa_status_cached(
+                        token=st.session_state.token,
+                        limit=batch_size,
+                        skip=start_idx
+                    )
+                    
+                    if batch_df is not None and not batch_df.empty:
+                        if st.session_state.processed_df.empty:
+                            st.session_state.processed_df = batch_df
+                        else:
+                            st.session_state.processed_df = pd.concat(
+                                [st.session_state.processed_df, batch_df], 
+                                ignore_index=True
+                            )
+                        processed_count += len(batch_df)
+                    
+                    # Update progress
+                    st.session_state.progress = min((batch_num + 1) / num_batches, 1.0)
+                    st.session_state.current_batch = batch_num + 1
+                    
+                    if batch_num % 5 == 0:
+                        save_progress_to_file()
+                    
+                    # Add delay to prevent API throttling
+                    time.sleep(0.5)
+                    
+                except Exception as e:
+                    st.session_state.error_users.append({
+                        'batch': batch_num,
+                        'start_idx': start_idx,
+                        'error': str(e),
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    # Continue processing despite errors
+                    continue
+                    
+        except Exception as e:
+            st.error(f"Fatal error in background processing: {str(e)}")
+        finally:
+            st.session_state.job_running = False
+            save_progress_to_file()
 
     def cancel_processing(self):
         """Cancel the processing job"""
@@ -359,112 +359,6 @@ def process_users(self, num_users: int):
         except Exception as e:
             st.error(f"Error in analysis: {str(e)}")
             st.error(traceback.format_exc())
-
-    def check_data_loaded(self) -> bool:
-        """Check if data is loaded and available"""
-        if not st.session_state.get('data_loaded', False) or st.session_state.get('df') is None:
-            st.warning("Please load data in the Data Collection tab first")
-            return False
-        return True
-
-    def apply_filters(self, df):
-        """Apply filters to the DataFrame"""
-        try:
-            if df is None or df.empty:
-                return df
-
-            available_columns = df.columns.tolist()
-            st.write("Available columns for filtering:", available_columns)
-
-            cols = st.columns(3)
-            filters = {}
-            
-            if 'userPrincipalName' in available_columns:
-                with cols[0]:
-                    email_filter = st.text_input('Filter by Email')
-                    if email_filter:
-                        filters['userPrincipalName'] = email_filter
-
-            if 'displayName' in available_columns:
-                with cols[1]:
-                    name_filter = st.text_input('Filter by Name')
-                    if name_filter:
-                        filters['displayName'] = name_filter
-
-            filtered_df = df.copy()
-            for column, value in filters.items():
-                if value:
-                    filtered_df = filtered_df[filtered_df[column].str.contains(value, case=False, na=False)]
-
-            return filtered_df
-
-        except Exception as e:
-            st.error(f"Error applying filters: {str(e)}")
-            return df
-
-    def display_metrics_and_charts(self, df):
-        """Display metrics and charts"""
-        try:
-            if df is None or df.empty:
-                st.warning("No data available to display metrics and charts")
-                return
-
-            st.write("Available columns:", df.columns.tolist())
-
-            total_users = len(df)
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Users", total_users)
-            
-            with col2:
-                if 'assignedLicenses' in df.columns:
-                    licensed_users = df['assignedLicenses'].apply(lambda x: len(x) > 0 if isinstance(x, list) else False).sum()
-                    st.metric("Licensed Users", licensed_users)
-            
-            with col3:
-                if 'signInActivity' in df.columns:
-                    active_users = df['signInActivity'].apply(
-                        lambda x: x.get('lastSignInDateTime') is not None if isinstance(x, dict) else False
-                    ).sum()
-                    st.metric("Active Users", active_users)
-
-            self.create_mfa_distribution_chart(df)
-            self.create_license_distribution_chart(df)
-
-        except Exception as e:
-            st.error(f"Error displaying metrics and charts: {str(e)}")
-
-    def create_mfa_distribution_chart(self, df: pd.DataFrame):
-        """Create MFA distribution chart"""
-        try:
-            st.markdown("### MFA Status Distribution")
-            if 'MFAStatus' in df.columns:
-                mfa_counts = df['MFAStatus'].value_counts()
-                st.bar_chart(mfa_counts)
-            else:
-                st.warning("MFA Status information not available")
-        except Exception as e:
-            st.error(f"Error creating MFA distribution chart: {str(e)}")
-
-    def create_license_distribution_chart(self, df: pd.DataFrame):
-        """Create license distribution chart"""
-        try:
-            st.markdown("### License Distribution")
-            if 'Licenses' in df.columns:
-                license_counts = df['Licenses'].value_counts()
-                st.bar_chart(license_counts)
-            else:
-                st.warning("License information not available")
-        except Exception as e:
-            st.error(f"Error creating license distribution chart: {str(e)}")
-
-    def display_data_table(self, df: pd.DataFrame):
-        """Display the data table with download option"""
-        st.markdown("## Detailed Data")
-        st.dataframe(df)
-        self.offer_download(df)
 
     def handle_logout(self):
         """Handle the logout process"""
