@@ -306,18 +306,24 @@ def cancel_processing(self):
             save_progress_to_file()
 
     def cancel_processing(self):
-        """Cancel the processing job"""
-        st.session_state.processed_count = 0
-        st.session_state.mfa_data = []
-        st.session_state.error_users = []
-        st.session_state.processing = False
+        """Cancel the processing job with proper cleanup"""
         st.session_state.job_running = False
-        if 'processed_df' in st.session_state:
-            del st.session_state.processed_df
-        st.experimental_rerun()
+        st.session_state.processing = False
+    
+    # Save progress before cancelling
+        if st.session_state.get('current_batch', 0) > 0:
+            self.save_progress()
+            st.info("Progress saved. You can resume later.")
+    
+    # Clear processing states but keep the data
+        st.session_state.current_batch = 0
+        st.session_state.progress = 0
+    
+        st.rerun()  # Changed from st.experimental_rerun() to st.rerun()
 
     def offer_download(self, df: pd.DataFrame):
         """Offer download option for the data"""
+        # 将DataFrame转换为CSV格式
         csv = df.to_csv(index=False)
         st.download_button(
             label="Download Complete Data as CSV",
