@@ -154,23 +154,6 @@ def stop_processing():
     save_progress_to_file()
 
 class UserAnalyzer:
-    def process_users(self, num_users: int):
-        """Process a specific number of users"""
-        try:
-            st.session_state.processing = True
-            batch_df = get_mfa_status(st.session_state.token, num_users, 0)
-            
-            if batch_df is not None and not batch_df.empty:
-                st.session_state.df = batch_df
-                st.session_state.data_loaded = True
-                self.display_metrics_and_charts(batch_df)
-                st.dataframe(batch_df)
-                
-        except Exception as e:
-            st.error(f"Error processing users: {str(e)}")
-        finally:
-            st.session_state.processing = False
-    
     def render_data_collection_tab(self):
         """Render the Data Collection tab"""
         st.header("📊 Data Collection")
@@ -216,7 +199,23 @@ class UserAnalyzer:
         # Show processing status if active
         if st.session_state.processing:
             st.info("Processing in progress... Use the Cancel button to stop.")
-    
+    def process_users(self, num_users: int):
+        """Process a specific number of users"""
+        try:
+            st.session_state.processing = True
+            batch_df = get_mfa_status(st.session_state.token, num_users, 0)
+            
+            if batch_df is not None and not batch_df.empty:
+                st.session_state.df = batch_df
+                st.session_state.data_loaded = True
+                self.display_metrics_and_charts(batch_df)
+                st.dataframe(batch_df)
+                
+        except Exception as e:
+            st.error(f"Error processing users: {str(e)}")
+        finally:
+            st.session_state.processing = False
+        
     def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         """Process users in batches with background processing"""
         try:
