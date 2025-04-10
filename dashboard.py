@@ -66,13 +66,13 @@ def load_progress_from_file():
         pass
 
 @st.cache_data(ttl=3600)
-def get_mfa_status_cached(user):
+def get_mfa_status_cached(self, token: str, limit: int, skip: int = 0):
     """Cached version of MFA status check"""
     try:
-        return get_mfa_status(user)
+        return get_mfa_status(token, limit, skip)
     except Exception as e:
+        st.error(f"Error in cached MFA status check: {str(e)}")
         return None
-
 # Your current process_batch function
 def process_batch(users, batch_size=100):
     """Process a batch of users in the background"""
@@ -134,19 +134,25 @@ def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         st.session_state.job_running = False
 
 def background_processing(self):
-    try:
-        num_batches = (total_users + batch_size - 1) // batch_size
+   try:
+         total_users = st.session_state.num_users
+         batch_size = 500  # or whatever batch size you want to use
+         num_batches = (total_users + batch_size - 1) // batch_size
         
-        for batch_num in range(num_batches):
+         for batch_num in range(num_batches):
             if not st.session_state.job_running:
                 break
                 
             start_idx = batch_num * batch_size
-            batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
+            batch_df = self.get_mfa_status_cached(
+                token=st.session_state.token,
+                limit=batch_size,
+                skip=start_idx
+            )
             
             # Safely handle the DataFrame concatenation
             if batch_df is not None and not batch_df.empty:
-                if st.session_state.processed_df is None:
+                if st.session_state.processed_df is None or st.session_state.processed_df.empty:
                     st.session_state.processed_df = batch_df
                 else:
                     st.session_state.processed_df = pd.concat(
@@ -162,13 +168,13 @@ def background_processing(self):
             
             time.sleep(1)  # Prevent overwhelming the system
             
-    except Exception as e:
+   except Exception as e:
         st.session_state.error_users.append({
             'batch': batch_num,
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         })
-    finally:
+   finally:
         st.session_state.job_running = False
         save_progress_to_file()
 
@@ -441,72 +447,79 @@ class UserAnalyzer:
             return False
         return True
 
-    def apply_filters(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply sidebar filters to the dataframe"""
-        with st.sidebar:
-            st.markdown("## Filters")
-            try:
-                # Check if required columns exist
-                if 'MFAStatus' not in df.columns or 'Licenses' not in df.columns:
-                    st.warning("Required columns not found in data")
-                    return df
-                    
-                mfa_options = sorted(df['MFAStatus'].dropna().unique().tolist())
-                license_options = sorted(df['Licenses'].dropna().unique().tolist())
-            
-                selected_mfa = st.multiselect(
-                    "MFA Status",
-                    options=mfa_options,
-                    default=mfa_options
-                )
-            
-                selected_licenses = st.multiselect(
-                    "License Type",
-                    options=license_options,
-                    default=license_options
-                )
-            
-                if selected_mfa and selected_licenses:
-                    return df[
-                        (df['MFAStatus'].isin(selected_mfa)) &
-                        (df['Licenses'].isin(selected_licenses))
-                    ]
-                return df
-            
-            except Exception as e:
-                st.error(f"Error creating filters: {str(e)}")
-                return df
-
-    def display_metrics_and_charts(self, df: pd.DataFrame):
-        """Display metrics and visualization charts"""
+    def apply_filters(self, df):
         try:
-            col1, col2, col3 = st.columns(3)
-            total_users = len(df)
-            
-            with col1:
-                st.metric("Total Users", total_users)
-            
-            with col2:
-                mfa_enabled = len(df[df['MFAStatus'] == 'Enabled'])
-                mfa_pct = (mfa_enabled/total_users*100) if total_users > 0 else 0
-                st.metric("MFA Enabled", f"{mfa_enabled} ({mfa_pct:.1f}%)")
-            
-            with col3:
-                mfa_disabled = len(df[df['MFAStatus'] == 'Disabled'])
-                disabled_pct = (mfa_disabled/total_users*100) if total_users > 0 else 0
-                st.metric("MFA Disabled", f"{mfa_disabled} ({disabled_pct:.1f}%)")
+            if df is None or df.empty:
+                return df
 
-            st.markdown("## Data Visualization")
-            viz_col1, viz_col2 = st.columns(2)
+            # Get available columns
+            available_columns = df.columns.tolist()
+            st.write("Available columns for filtering:", available_columns)
+
+            # Create filters based on available columns
+            cols = st.columns(3)
             
-            with viz_col1:
-                self.create_mfa_distribution_chart(df)
+            filters = {}
             
-            with viz_col2:
-                self.create_license_distribution_chart(df)
+            if 'userPrincipalName' in available_columns:
+                with cols[0]:
+                    email_filter = st.text_input('Filter by Email')
+                    if email_filter:
+                        filters['userPrincipalName'] = email_filter
+
+            if 'displayName' in available_columns:
+                with cols[1]:
+                    name_filter = st.text_input('Filter by Name')
+                    if name_filter:
+                        filters['displayName'] = name_filter
+
+            # Apply filters
+            filtered_df = df.copy()
+            for column, value in filters.items():
+                if value:
+                    filtered_df = filtered_df[filtered_df[column].str.contains(value, case=False, na=False)]
+
+            return filtered_df
 
         except Exception as e:
-            st.error(f"Error displaying metrics and charts: {str(e)}")
+            st.error(f"Error applying filters: {str(e)}")
+            return df
+
+    def display_metrics_and_charts(self, df):
+       try:
+         if df is None or df.empty:
+            st.warning("No data available to display metrics and charts")
+            return
+
+        # Display raw data for debugging
+         st.write("Available columns:", df.columns.tolist())
+
+        # Calculate metrics based on available data
+         total_users = len(df)
+        
+        # Create metrics
+         col1, col2, col3 = st.columns(3)
+        
+         with col1:
+            st.metric("Total Users", total_users)
+        
+         with col2:
+            if 'assignedLicenses' in df.columns:
+                licensed_users = df['assignedLicenses'].apply(lambda x: len(x) > 0 if isinstance(x, list) else False).sum()
+                st.metric("Licensed Users", licensed_users)
+        
+         with col3:
+            if 'signInActivity' in df.columns:
+                active_users = df['signInActivity'].apply(
+                    lambda x: x.get('lastSignInDateTime') is not None if isinstance(x, dict) else False
+                ).sum()
+                st.metric("Active Users", active_users)
+
+        # Display detailed DataFrame
+         st.dataframe(df)
+
+       except Exception as e:
+         st.error(f"Error displaying metrics and charts: {str(e)}")
 
     def create_mfa_distribution_chart(self, df: pd.DataFrame):
         """Create MFA distribution chart"""
