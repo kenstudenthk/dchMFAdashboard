@@ -6,11 +6,6 @@ import traceback
 from typing import Optional, Dict, List
 from datetime import datetime
 
-st.set_page_config(
-    page_title="MFA Status Check",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # License mapping dictionary
 LICENSE_MAPPING = {
