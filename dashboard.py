@@ -422,7 +422,31 @@ class UserAnalyzer:
         except Exception as e:
             st.error(f"Error applying filters: {str(e)}")
             return df
+    def display_license_metrics(df: pd.DataFrame):
+        """Display license distribution metrics"""
+        st.subheader("License Distribution")
+    
+        # Split the license string and count unique licenses
+        all_licenses = []
+        for licenses in df['Licenses'].str.split(', '):
+            if isinstance(licenses, list):
+                all_licenses.extend(licenses)
+    
+        license_counts = pd.Series(all_licenses).value_counts()
+    
+        # Display as a bar chart
+        st.bar_chart(license_counts)
+    
+        # Display as metrics
+        cols = st.columns(3)
+        with cols[0]:
+            st.metric("Total Licensed Users", len(df[df['Licenses'] != 'None']))
+        with cols[1]:
+            st.metric("Unlicensed Users", len(df[df['Licenses'] == 'None']))
+        with cols[2]:
+            st.metric("Unique Licenses", len(license_counts))
 
+    
     def display_metrics_and_charts(self, df):
         """Display metrics and charts"""
         try:
@@ -481,11 +505,32 @@ class UserAnalyzer:
         except Exception as e:
             st.error(f"Error creating license distribution chart: {str(e)}")
 
-    def display_data_table(self, df: pd.DataFrame):
-        """Display the data table with download option"""
-        st.markdown("## Detailed Data")
-        st.dataframe(df)
-        self.offer_download(df)
+    def display_data_table(df: pd.DataFrame):
+        """Display the data table with license information"""
+        # Reorder columns to show licenses prominently
+        columns = [
+            'DisplayName', 
+            'UserPrincipalName', 
+            'Licenses',  # Now included in display
+            'MFAStatus', 
+            'AuthMethods',
+            'CreationDate',
+            'LastInteractiveSignIn',
+            'LastSignIn',
+            'LastNonInteractiveSignIn'
+        ]
+    
+        st.dataframe(
+            df[columns],
+            height=400,
+            column_config={
+                "Licenses": st.column_config.TextColumn(
+                    "Assigned Licenses",
+                    help="User's assigned licenses",
+                    width="medium"
+                )
+            }
+        )
 
     def offer_download(self, df: pd.DataFrame):
         """Offer download option for the data"""
@@ -500,23 +545,29 @@ class UserAnalyzer:
     def render_analysis_tab(self):
         """Render the Analysis tab"""
         st.header("📈 Analysis")
-        
+    
         if not self.check_data_loaded():
             return
-        
+    
         try:
             df = st.session_state.df.copy()
             if df.empty:
                 st.warning("No data available for analysis")
                 return
-            
+        
+                # Display license metrics
+                display_license_metrics(df)
+        
+            # Apply filters
             df_filtered = self.apply_filters(df)
+        
+            # Display other metrics and charts
             self.display_metrics_and_charts(df_filtered)
             self.display_data_table(df_filtered)
-            
+        
         except Exception as e:
             st.error(f"Error in analysis: {str(e)}")
-            st.error(traceback.format_exc())
+        st.error(traceback.format_exc())
 
 class Dashboard:
     def __init__(self):

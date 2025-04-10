@@ -81,11 +81,12 @@ def process_user_details(user: Dict, headers: Dict) -> Dict:
     return {
         'DisplayName': user.get('displayName', 'None'),
         'UserPrincipalName': user.get('userPrincipalName', 'None'),
-        'Licenses': ', '.join(licenses) if licenses else 'None',
+        'Licenses': ', '.join(licenses) if licenses else 'None',  # Now showing mapped license names
         'MFAStatus': mfa_status,
         'AuthMethods': ', '.join(auth_methods) if auth_methods else 'None',
         'CreationDate': user.get('createdDateTime', 'None'),
-        'LastInteractiveSignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'None'),
+        'LastInteractiveSignIn': user.get('signInActivity', {}).get('lastInteractiveSignInDateTime', 'None'),
+        'LastSignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'None'),
         'LastNonInteractiveSignIn': user.get('signInActivity', {}).get('lastNonInteractiveSignInDateTime', 'None')
     }
 
