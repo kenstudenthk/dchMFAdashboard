@@ -195,74 +195,22 @@ class UserAnalyzer:
             st.session_state.processing = False
             st.session_state.job_running = False
 
-def process_users(self, num_users: int):
-    """Process a specific number of users"""
-    try:
-        st.session_state.processing = True
-        batch_df = get_mfa_status_cached(st.session_state.token, num_users, 0)
-        
-        if batch_df is not None and not batch_df.empty:
-            st.session_state.df = batch_df
-            st.session_state.data_loaded = True
-            self.display_metrics_and_charts(batch_df)
-            st.dataframe(batch_df)
-            
-    except Exception as e:
-        st.error(f"Error processing users: {str(e)}")
-    finally:
-        st.session_state.processing = False
-    def process_users_in_batches(self, total_users: int, batch_size: int = 500):
-        """Process users in batches with background processing"""
+    def process_users(self, num_users: int):    # Fix indentation - should be at same level as other class methods
+        """Process a specific number of users"""
         try:
-            # Initialize states
             st.session_state.processing = True
-            st.session_state.job_running = True
-            st.session_state.progress = 0
-            st.session_state.current_batch = 0
-            st.session_state.processed_df = pd.DataFrame()
-
-            # Create progress indicators
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            batch_df = get_mfa_status_cached(st.session_state.token, num_users, 0)
             
-            # Start background processing
-            thread = Thread(target=self.background_processing, args=(total_users, batch_size))
-            thread.daemon = True
-            thread.start()
-            
-            # Update UI while processing
-            while st.session_state.job_running:
-                progress_bar.progress(st.session_state.progress)
-                current_batch = st.session_state.current_batch
-                status_text.text(f"Processing batch {current_batch}...")
+            if batch_df is not None and not batch_df.empty:
+                st.session_state.df = batch_df
+                st.session_state.data_loaded = True
+                self.display_metrics_and_charts(batch_df)
+                st.dataframe(batch_df)
                 
-                if not st.session_state.processed_df.empty:
-                    df = st.session_state.processed_df.copy()
-                    st.session_state.df = df
-                    st.session_state.data_loaded = True
-                    
-                    if current_batch % 2 == 0:
-                        st.markdown("## Interim Analysis Results")
-                        self.display_metrics_and_charts(df)
-                        st.markdown("## Interim Data")
-                        st.dataframe(df)
-                
-                time.sleep(1)
-            
-            # Final updates
-            status_text.text("Processing complete!")
-            progress_bar.progress(1.0)
-            
-            if not st.session_state.processed_df.empty:
-                st.success(f"Successfully processed {len(st.session_state.processed_df)} users!")
-                self.offer_download(st.session_state.processed_df)
-            
         except Exception as e:
-            st.error(f"Error during batch processing: {str(e)}")
-            st.error(traceback.format_exc())
+            st.error(f"Error processing users: {str(e)}")
         finally:
             st.session_state.processing = False
-            st.session_state.job_running = False
 
     def background_processing(self, total_users: int, batch_size: int):
         """Background processing function"""
@@ -369,6 +317,111 @@ def process_users(self, num_users: int):
                 del st.session_state.token
             st.success("Successfully logged out!")
             st.rerun()
+    def check_data_loaded(self) -> bool:
+        """Check if data is loaded and available"""
+        if not st.session_state.get('data_loaded', False) or st.session_state.get('df') is None:
+            st.warning("Please load data in the Data Collection tab first")
+            return False
+        return True
+
+    def apply_filters(self, df):
+        """Apply filters to the DataFrame"""
+        try:
+            if df is None or df.empty:
+                return df
+
+            available_columns = df.columns.tolist()
+            st.write("Available columns for filtering:", available_columns)
+
+            cols = st.columns(3)
+            filters = {}
+            
+            if 'userPrincipalName' in available_columns:
+                with cols[0]:
+                    email_filter = st.text_input('Filter by Email')
+                    if email_filter:
+                        filters['userPrincipalName'] = email_filter
+
+            if 'displayName' in available_columns:
+                with cols[1]:
+                    name_filter = st.text_input('Filter by Name')
+                    if name_filter:
+                        filters['displayName'] = name_filter
+
+            filtered_df = df.copy()
+            for column, value in filters.items():
+                if value:
+                    filtered_df = filtered_df[filtered_df[column].str.contains(value, case=False, na=False)]
+
+            return filtered_df
+
+        except Exception as e:
+            st.error(f"Error applying filters: {str(e)}")
+            return df
+
+    def display_metrics_and_charts(self, df):
+        """Display metrics and charts"""
+        try:
+            if df is None or df.empty:
+                st.warning("No data available to display metrics and charts")
+                return
+
+            st.write("Available columns:", df.columns.tolist())
+
+            total_users = len(df)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Users", total_users)
+            
+            with col2:
+                if 'assignedLicenses' in df.columns:
+                    licensed_users = df['assignedLicenses'].apply(lambda x: len(x) > 0 if isinstance(x, list) else False).sum()
+                    st.metric("Licensed Users", licensed_users)
+            
+            with col3:
+                if 'signInActivity' in df.columns:
+                    active_users = df['signInActivity'].apply(
+                        lambda x: x.get('lastSignInDateTime') is not None if isinstance(x, dict) else False
+                    ).sum()
+                    st.metric("Active Users", active_users)
+
+            self.create_mfa_distribution_chart(df)
+            self.create_license_distribution_chart(df)
+
+        except Exception as e:
+            st.error(f"Error displaying metrics and charts: {str(e)}")
+
+    def create_mfa_distribution_chart(self, df: pd.DataFrame):
+        """Create MFA distribution chart"""
+        try:
+            st.markdown("### MFA Status Distribution")
+            if 'MFAStatus' in df.columns:
+                mfa_counts = df['MFAStatus'].value_counts()
+                st.bar_chart(mfa_counts)
+            else:
+                st.warning("MFA Status information not available")
+        except Exception as e:
+            st.error(f"Error creating MFA distribution chart: {str(e)}")
+
+    def create_license_distribution_chart(self, df: pd.DataFrame):
+        """Create license distribution chart"""
+        try:
+            st.markdown("### License Distribution")
+            if 'Licenses' in df.columns:
+                license_counts = df['Licenses'].value_counts()
+                st.bar_chart(license_counts)
+            else:
+                st.warning("License information not available")
+        except Exception as e:
+            st.error(f"Error creating license distribution chart: {str(e)}")
+
+    def display_data_table(self, df: pd.DataFrame):
+        """Display the data table with download option"""
+        st.markdown("## Detailed Data")
+        st.dataframe(df)
+        self.offer_download(df)        
 
 class Dashboard:
     def __init__(self):
