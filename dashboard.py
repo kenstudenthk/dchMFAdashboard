@@ -745,7 +745,16 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        # Initialize session state first
+        init_session_state()
+        
+        # Load custom CSS
+        load_css()
+        
+        # Initialize and run the dashboard
+        dashboard = Dashboard()
+        dashboard.run()
+        
     except KeyboardInterrupt:
         st.warning("Application terminated by user")
     except Exception as e:
