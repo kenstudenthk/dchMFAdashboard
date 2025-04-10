@@ -98,7 +98,44 @@ class UserAnalyzer:
             self.process_users_in_batches(total_users)
 
     def render_data_collection_tab(self):
-        """Process users in batches with background processing"""
+      """Render the Data Collection tab"""
+    st.header("📊 Data Collection")
+    st.markdown("---")
+    
+    col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+    
+    with col1:
+        if st.button("🔍 Process Users", key="process_users", use_container_width=True):
+            self.process_users(st.session_state.num_users)
+    
+    with col2:
+        if st.button("👥 Process All Users", key="process_all_users", use_container_width=True):
+            self.process_users_in_batches(total_users=5000, batch_size=100)
+    
+    with col3:
+        if st.button("Logout", key="logout_button", use_container_width=True):
+            self.handle_logout()
+    
+    with col4:
+        if st.button("❌ Cancel", key="cancel_processing", use_container_width=True):
+            self.cancel_processing()
+
+    # Show processing status
+    if st.session_state.processing:
+        st.info("Processing in progress... Use the Cancel button to stop.")
+        
+    # Add a number input for custom user count
+    st.number_input(
+        "Number of users to process",
+        min_value=1,
+        max_value=500,
+        value=st.session_state.get('num_users', 100),
+        step=10,
+        key='num_users'
+    )
+
+def process_users_in_batches(self, total_users: int, batch_size: int = 100):
+    """Process users in batches with background processing"""
     try:
         # Initialize states
         st.session_state.processing = True
@@ -152,23 +189,22 @@ class UserAnalyzer:
         st.session_state.processing = False
         st.session_state.job_running = False
 
-    def process_users(self, num_users: int):
-        """Process a specific number of users"""
-        try:
-            st.session_state.processing = True
-            batch_df = get_mfa_status_cached(st.session_state.token, num_users, 0)
+def process_users(self, num_users: int):
+    """Process a specific number of users"""
+    try:
+        st.session_state.processing = True
+        batch_df = get_mfa_status_cached(st.session_state.token, num_users, 0)
+        
+        if batch_df is not None and not batch_df.empty:
+            st.session_state.df = batch_df
+            st.session_state.data_loaded = True
+            self.display_metrics_and_charts(batch_df)
+            st.dataframe(batch_df)
             
-            if batch_df is not None and not batch_df.empty:
-                st.session_state.df = batch_df
-                st.session_state.data_loaded = True
-                self.display_metrics_and_charts(batch_df)
-                st.dataframe(batch_df)
-                
-        except Exception as e:
-            st.error(f"Error processing users: {str(e)}")
-        finally:
-            st.session_state.processing = False
-
+    except Exception as e:
+        st.error(f"Error processing users: {str(e)}")
+    finally:
+        st.session_state.processing = False
     def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         """Process users in batches with background processing"""
         try:
