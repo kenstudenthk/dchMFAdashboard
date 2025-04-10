@@ -81,58 +81,64 @@ class UserAnalyzer:
         self.init_session_state()
 
     def init_session_state(self):
-        """Initialize session state variables specific to UserAnalyzer"""
-        defaults = {
-            'processed_df': pd.DataFrame(),
-            'data_loaded': False,
-            'num_users': 100
-        }
-        
-        for key, value in defaults.items():
-            if key not in st.session_state:
-                st.session_state[key] = value
-
-    def analyze_users(self):
-        if st.button("Process All Users (Batch)"):
-            total_users = st.session_state.get('num_users', 100)
-            self.process_users_in_batches(total_users)
+        """Initialize session state variables"""
+    defaults = {
+        'job_running': False,
+        'processed_users': [],
+        'error_users': [],
+        'current_batch': 0,
+        'progress': 0,
+        'status_message': "",
+        'processing_status': False,
+        'processing': False,
+        'authenticated': False,
+        'token': None,
+        'processed_df': None,
+        'num_users': 100,
+        'data_loaded': False,
+        'df': None
+    }
+    
+    for key, default_value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
 
     def render_data_collection_tab(self):
-      """Render the Data Collection tab"""
-    st.header("📊 Data Collection")
-    st.markdown("---")
-    
-    col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
-    
-    with col1:
-        if st.button("🔍 Process Users", key="process_users", use_container_width=True):
-            self.process_users(st.session_state.num_users)
-    
-    with col2:
-        if st.button("👥 Process All Users", key="process_all_users", use_container_width=True):
-            self.process_users_in_batches(total_users=5000, batch_size=100)
-    
-    with col3:
-        if st.button("Logout", key="logout_button", use_container_width=True):
-            self.handle_logout()
-    
-    with col4:
-        if st.button("❌ Cancel", key="cancel_processing", use_container_width=True):
-            self.cancel_processing()
-
-    # Show processing status
-    if st.session_state.processing:
-        st.info("Processing in progress... Use the Cancel button to stop.")
+        """Render the Data Collection tab"""
+        st.header("📊 Data Collection")
+        st.markdown("---")
         
-    # Add a number input for custom user count
-    st.number_input(
-        "Number of users to process",
-        min_value=1,
-        max_value=500,
-        value=st.session_state.get('num_users', 100),
-        step=10,
-        key='num_users'
-    )
+        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+        
+        with col1:
+            if st.button("🔍 Process Users", key="process_users", use_container_width=True):
+                self.process_users(st.session_state.num_users)
+        
+        with col2:
+            if st.button("👥 Process All Users", key="process_all_users", use_container_width=True):
+                self.process_users_in_batches(total_users=5000, batch_size=100)
+        
+        with col3:
+            if st.button("Logout", key="logout_button", use_container_width=True):
+                self.handle_logout()
+        
+        with col4:
+            if st.button("❌ Cancel", key="cancel_processing", use_container_width=True):
+                self.cancel_processing()
+
+        # Add a number input for custom user count
+        st.number_input(
+            "Number of users to process",
+            min_value=1,
+            max_value=500,
+            value=st.session_state.get('num_users', 100),
+            step=10,
+            key='num_users'
+        )
+
+        # Show processing status
+        if st.session_state.get('processing', False):
+            st.info("Processing in progress... Use the Cancel button to stop.")
 
 def process_users_in_batches(self, total_users: int, batch_size: int = 100):
     """Process users in batches with background processing"""
