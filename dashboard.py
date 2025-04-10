@@ -171,6 +171,52 @@ class UserAnalyzer:
         finally:
             st.session_state.processing = False
     
+    def render_data_collection_tab(self):
+        """Render the Data Collection tab"""
+        st.header("📊 Data Collection")
+        st.markdown("---")
+        
+        token = st.text_input("Enter token", type="password")
+        num_users = st.number_input(
+            "Number of users to process",
+            min_value=1,
+            max_value=500,
+            value=st.session_state.get('num_users', 100),
+            step=10
+        )
+        st.session_state.num_users = num_users
+        
+        # Modified column layout to include cancel button
+        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+        
+        with col1:
+            if st.button("🔍 Process Users", key="process_users", use_container_width=True):
+                self.process_users(num_users)
+        
+        with col2:
+            if st.button("👥 Process All Users (Batch)", key="process_all_users", use_container_width=True):
+                self.process_users_in_batches(13000, batch_size=500)
+        
+        with col3:
+            if st.button("Logout", key="logout_button", use_container_width=True):
+                self.handle_logout()
+        
+        with col4:
+            if st.button("❌ Cancel", key="cancel_processing", use_container_width=True):
+                st.session_state.processed_count = 0
+                st.session_state.mfa_data = []
+                st.session_state.error_users = []
+                st.session_state.processing = False
+                st.session_state.processing_status = False
+                st.session_state.job_running = False
+                if 'processed_df' in st.session_state:
+                    del st.session_state.processed_df
+                st.experimental_rerun()
+
+        # Show processing status if active
+        if st.session_state.processing:
+            st.info("Processing in progress... Use the Cancel button to stop.")
+    
     def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         """Process users in batches with background processing"""
         try:
@@ -421,6 +467,7 @@ class UserAnalyzer:
             file_name="filtered_mfa_status.csv",
             mime="text/csv"
         )
+
     def handle_logout(self):
         """Handle the logout process"""
         auth = init_auth()
