@@ -604,32 +604,39 @@ class Dashboard:
 
     def render_main_interface(self):
         """Render the main application interface"""
-        self.render_sidebar()
-        self.render_header()
+        try:
+        # Render sidebar and header
+             self.render_sidebar()
+             self.render_header()
         
-        if not st.session_state.authenticated:
-            self.handle_login()
-            return
+             # Check authentication
+             if not st.session_state.authenticated:
+                self.handle_login()
+                return
             
         # Main tabs
-        tab1, tab2 = st.tabs(["📊 Data Collection", "📈 Analysis"])
+             tab1, tab2 = st.tabs(["📊 Data Collection", "📈 Analysis"])
         
-        with tab1:
-            self.analyzer.render_data_collection_tab()
+             with tab1:
+               self.analyzer.render_data_collection_tab()  # Make sure UserAnalyzer has this method
             
-        with tab2:
-            self.analyzer.render_analysis_tab()
+             with tab2:
+                self.analyzer.render_analysis_tab()  # Make sure UserAnalyzer has this method
 
         # Add footer
-        st.markdown("---")
-        st.markdown(
-            """
-            <div style='text-align: center'>
-                <p>MFA Status Checker Dashboard • Built with Streamlit</p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+             st.markdown("---")
+             st.markdown(
+                """
+                <div style='text-align: center'>
+                     <p>MFA Status Checker Dashboard • Built with Streamlit</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+         )
+            
+        except Exception as e:
+            st.error(f"Error in rendering interface: {str(e)}")
+            st.error(traceback.format_exc())
 
     def handle_error(self, error: Exception):
         """Handle application errors"""
