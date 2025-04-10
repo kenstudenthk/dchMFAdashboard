@@ -104,7 +104,6 @@ def process_batch(users, batch_size=100):
         
         time.sleep(0.1)
 
-# Your process_users_in_batches method
 def process_users_in_batches(self, total_users: int, batch_size: int = 500):
     """Process users in batches with background processing"""
     try:
@@ -113,9 +112,15 @@ def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         st.session_state.processing = True
         st.session_state.job_running = True
         
-        if 'processed_df' not in st.session_state:
+        # Initialize processed_df as an empty DataFrame, not None
+        if 'processed_df' not in st.session_state or st.session_state.processed_df is None:
             st.session_state.processed_df = pd.DataFrame()
         
+        # Now you can safely check if it's empty
+        if 'processed_df' in st.session_state and not st.session_state.processed_df.empty:
+            # Your code for handling existing data
+            pass
+
         progress_text = "Processing users in batches..."
         my_bar = st.progress(0)
         status_text = st.empty()
@@ -125,52 +130,47 @@ def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         thread.start()
         
     except Exception as e:
-        st.error(f"Error: {str(e)}")
+        st.error(f"Error during batch processing: {str(e)}")
         st.session_state.job_running = False
+
+def background_processing(self):
+    try:
+        num_batches = (total_users + batch_size - 1) // batch_size
         
-        def background_processing():
-            try:
-                if not st.session_state.get('job_running', False):
-                  return
-                num_batches = (total_users + batch_size - 1) // batch_size
+        for batch_num in range(num_batches):
+            if not st.session_state.job_running:
+                break
                 
-                for batch_num in range(num_batches):
-                    if not st.session_state.job_running:
-                        break
-                        
-                    start_idx = batch_num * batch_size
-                    # Gets multiple users at once in a DataFrame
-                    batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
-                    
-                    if batch_df is not None and not batch_df.empty:
-                        # Concatenates DataFrames
-                        if 'processed_df' not in st.session_state:
-                            st.session_state.processed_df = batch_df
-                        else:
-                            st.session_state.processed_df = pd.concat(
-                                [st.session_state.processed_df, batch_df], 
-                                ignore_index=True
-                            )
-                    
-                    st.session_state.progress = (batch_num + 1) / num_batches
-                    st.session_state.current_batch = batch_num + 1
-                    
-                    if batch_num % 5 == 0:
-                        save_progress_to_file()
-                
-                time.sleep(1)
+            start_idx = batch_num * batch_size
+            batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
             
-            except Exception as e:
-              if 'error_users' in st.session_state:
-                st.session_state.error_users.append({
-                'batch': st.session_state.get('current_batch', 0),
-                'error': str(e),
-                'timestamp': datetime.now().isoformat()
-            })
-            finally:
-              if 'job_running' in st.session_state:
-                st.session_state.job_running = False
-              save_progress_to_file()
+            # Safely handle the DataFrame concatenation
+            if batch_df is not None and not batch_df.empty:
+                if st.session_state.processed_df is None:
+                    st.session_state.processed_df = batch_df
+                else:
+                    st.session_state.processed_df = pd.concat(
+                        [st.session_state.processed_df, batch_df], 
+                        ignore_index=True
+                    )
+            
+            st.session_state.progress = (batch_num + 1) / num_batches
+            st.session_state.current_batch = batch_num + 1
+            
+            if batch_num % 5 == 0:
+                save_progress_to_file()
+            
+            time.sleep(1)  # Prevent overwhelming the system
+            
+    except Exception as e:
+        st.session_state.error_users.append({
+            'batch': batch_num,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        })
+    finally:
+        st.session_state.job_running = False
+        save_progress_to_file()
 
 
 
