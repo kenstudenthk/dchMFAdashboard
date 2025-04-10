@@ -175,7 +175,7 @@ class UserAnalyzer:
                 except FileNotFoundError:
                     resume_from = 0
                 else:
-                 resume_from = st.session_state.current_batch * batch_size
+                    resume_from = st.session_state.current_batch * batch_size
 
             # Create status containers
             status_container = st.empty()
