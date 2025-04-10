@@ -140,7 +140,7 @@ class UserAnalyzer:
         if st.session_state.get('processing', False):
             st.info("Processing in progress... Use the Cancel button to stop.")
 
-    def process_users_in_batches(self, total_users: int, batch_size: int = 100):
+    def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         """Process users in batches with background processing"""
         try:
             # Initialize states
@@ -151,41 +151,39 @@ class UserAnalyzer:
             st.session_state.processed_df = pd.DataFrame()
 
             # Create progress indicators
-            progress_container = st.empty()
-            status_container = st.empty()
-            data_container = st.empty()
-        
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
             # Start background processing
             thread = Thread(target=self.background_processing, args=(total_users, batch_size))
             thread.daemon = True
             thread.start()
-        
+            
             # Update UI while processing
             while st.session_state.job_running:
-                # Update progress bar
-                progress_container.progress(st.session_state.progress)
+                progress_bar.progress(st.session_state.progress)
                 current_batch = st.session_state.current_batch
-                status_container.text(f"Processing batch {current_batch}... ({len(st.session_state.processed_df)} users processed)")
+                status_text.text(f"Processing batch {current_batch}...")
                 
-                # Update data display
                 if not st.session_state.processed_df.empty:
                     df = st.session_state.processed_df.copy()
                     st.session_state.df = df
                     st.session_state.data_loaded = True
                     
                     if current_batch % 2 == 0:
-                        with data_container.container():
-                            st.markdown("### Current Results")
-                            self.display_metrics_and_charts(df)
-                            st.dataframe(df)
+                        st.markdown("## Interim Analysis Results")
+                        self.display_metrics_and_charts(df)
+                        st.markdown("## Interim Data")
+                        st.dataframe(df)
                 
                 time.sleep(1)
             
             # Final updates
-            progress_container.progress(1.0)
-            status_container.success(f"Processing complete! Processed {len(st.session_state.processed_df)} users")
+            status_text.text("Processing complete!")
+            progress_bar.progress(1.0)
             
             if not st.session_state.processed_df.empty:
+                st.success(f"Successfully processed {len(st.session_state.processed_df)} users!")
                 self.offer_download(st.session_state.processed_df)
             
         except Exception as e:
@@ -422,6 +420,7 @@ class UserAnalyzer:
         st.markdown("## Detailed Data")
         st.dataframe(df)
         self.offer_download(df)        
+
 
 class Dashboard:
     def __init__(self):
