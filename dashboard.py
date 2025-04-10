@@ -568,11 +568,11 @@ class Dashboard:
     def render_sidebar(self):
         """Render the sidebar content"""
         with st.sidebar:
-            st.image("https://via.placeholder.com/150", caption="MFA Checker")
-            st.markdown("---")
+             st.image("https://via.placeholder.com/150", caption="MFA Checker")
+             st.markdown("---")
             
-            # Add refresh rate slider if authenticated
-            if st.session_state.authenticated:
+             # Add refresh rate slider if authenticated
+             if st.session_state.authenticated:
                 st.markdown("### Settings")
                 refresh_rate = st.slider(
                     "Refresh Rate (seconds)",
@@ -605,34 +605,34 @@ class Dashboard:
     def render_main_interface(self):
         """Render the main application interface"""
         try:
-        # Render sidebar and header
-             self.render_sidebar()
-             self.render_header()
+            # Render sidebar and header
+            self.render_sidebar()
+            self.render_header()
         
-             # Check authentication
-             if not st.session_state.authenticated:
+            # Check authentication
+            if not st.session_state.authenticated:
                 self.handle_login()
                 return
             
-        # Main tabs
-             tab1, tab2 = st.tabs(["📊 Data Collection", "📈 Analysis"])
+            # Main tabs
+            tab1, tab2 = st.tabs(["📊 Data Collection", "📈 Analysis"])
         
-             with tab1:
-               self.analyzer.render_data_collection_tab()  # Make sure UserAnalyzer has this method
+            with tab1:
+                self.analyzer.render_data_collection_tab()  # This method exists in UserAnalyzer class
             
-             with tab2:
-                self.analyzer.render_analysis_tab()  # Make sure UserAnalyzer has this method
+            with tab2:
+                self.analyzer.render_analysis_tab()  # This method exists in UserAnalyzer class
 
-        # Add footer
-             st.markdown("---")
-             st.markdown(
+            # Add footer
+            st.markdown("---")
+            st.markdown(
                 """
                 <div style='text-align: center'>
-                     <p>MFA Status Checker Dashboard • Built with Streamlit</p>
+                    <p>MFA Status Checker Dashboard • Built with Streamlit</p>
                 </div>
                 """,
                 unsafe_allow_html=True
-         )
+            )
             
         except Exception as e:
             st.error(f"Error in rendering interface: {str(e)}")
