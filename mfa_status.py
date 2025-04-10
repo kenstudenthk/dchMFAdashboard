@@ -116,7 +116,6 @@ def process_user_batch(headers, users_batch, processed_count, total_limit):
                 'UserPrincipalName': user.get('userPrincipalName', ''),
                 'DisplayName': user.get('displayName', ''),
                 'CreatedDateTime': user.get('createdDateTime', ''),
-                'LastSignIn': sign_in_activity.get('lastSignInDateTime', ''),
                 'LastInteractiveSignIn': sign_in_activity.get('lastInteractiveSignInDateTime', ''),
                 'LastNonInteractiveSignIn': sign_in_activity.get('lastNonInteractiveSignInDateTime', ''),
                 'MFAMethods': [method.get('@odata.type', '').split('.')[-1] for method in mfa_methods],
@@ -167,7 +166,12 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
         processed_count = 0
         
         # Process users in batches - Fixed the f-string here
-        next_link = f'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses&$top={BATCH_SIZE}'
+                # Modified API URL to explicitly request signInActivity
+        next_link = (
+            f'https://graph.microsoft.com/v1.0/users'
+            f'?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses'
+            f'&$top={BATCH_SIZE}'
+        )
         
         while next_link and processed_count < actual_limit:
             users_response = requests.get(next_link, headers=headers)
@@ -207,20 +211,19 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
                 break
         
         # Process results
+     # After processing all data and creating DataFrame
         if mfa_data:
-            status_text.empty()
             df = pd.DataFrame(mfa_data)
             
-            # Debug information
-            st.write(f"Data shape: {df.shape}")
-            st.write("Columns in DataFrame:", df.columns.tolist())
-            st.write("Sample of data:")
-            st.write(df.head())
+            # Add analysis of sign-in data
+            total_users = len(df)
+            users_with_interactive = (df['LastInteractiveSignIn'] != 'Never').sum()
+            users_with_noninteractive = (df['LastNonInteractiveSignIn'] != 'Never').sum()
             
-            st.success(f"Successfully processed {len(mfa_data)} users!")
-            
-            if error_users:
-                st.warning(f"Failed to process {len(error_users)} users. Check logs for details.")
+            st.write("Sign-in Activity Analysis:")
+            st.write(f"Total Users: {total_users}")
+            st.write(f"Users with Interactive Sign-ins: {users_with_interactive}")
+            st.write(f"Users with Non-Interactive Sign-ins: {users_with_noninteractive}")
             
             return df
         else:
