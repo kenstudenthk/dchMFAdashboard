@@ -100,6 +100,10 @@ def process_user_batch(headers, users_batch, processed_count, total_limit):
             mfa_methods_url = f"https://graph.microsoft.com/v1.0/users/{user['id']}/authentication/methods"
             mfa_response = requests.get(mfa_methods_url, headers=headers)
             
+            # Get license details
+            license_url = f"https://graph.microsoft.com/v1.0/users/{user['id']}/licenseDetails"
+            license_response = requests.get(license_url, headers=headers)
+            
             if mfa_response.status_code != 200:
                 batch_errors.append({
                     'UserPrincipalName': user.get('userPrincipalName', 'None'),
@@ -108,6 +112,15 @@ def process_user_batch(headers, users_batch, processed_count, total_limit):
                 continue
                 
             mfa_methods = mfa_response.json().get('value', [])
+            
+            # Process licenses
+            licenses = []
+            if license_response.status_code == 200:
+                license_details = license_response.json().get('value', [])
+                for license in license_details:
+                    sku_id = license.get('skuId', '')
+                    license_name = LICENSE_MAPPING.get(sku_id, f'Unknown License ({sku_id})')
+                    licenses.append(license_name)
             
             # Get sign in activity details
             sign_in_activity = user.get('signInActivity', {})
@@ -121,7 +134,9 @@ def process_user_batch(headers, users_batch, processed_count, total_limit):
                 'LastNonInteractiveSignIn': sign_in_activity.get('lastNonInteractiveSignInDateTime', ''),
                 'MFAMethods': [method.get('@odata.type', '').split('.')[-1] for method in mfa_methods],
                 'MFACount': len(mfa_methods),
-                'HasMFA': len(mfa_methods) > 0
+                'HasMFA': len(mfa_methods) > 0,
+                'Licenses': ', '.join(licenses) if licenses else 'None',
+                'LicenseCount': len(licenses)
             }
             
             batch_data.append(user_data)
@@ -175,10 +190,11 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
         error_users = st.session_state.error_users
         
         next_link = (
-            f'https://graph.microsoft.com/v1.0/users'
-            f'?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses'
-            f'&$top={BATCH_SIZE}'
-        )
+    f'https://graph.microsoft.com/v1.0/users'
+    f'?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses,licenseDetails'
+    f'&$expand=licenseDetails'
+    f'&$top={BATCH_SIZE}'
+)
         
         while next_link and processed_count < actual_limit:
             try:
