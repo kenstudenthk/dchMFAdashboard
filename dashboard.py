@@ -297,127 +297,133 @@ class UserAnalyzer:
         finally:
             st.session_state.processing = False
         
-    def process_users_in_batches(self, total_users: int, batch_size: int = 500):
-        """Process users in batches with background processing"""
-        try:
-            # Initialize processing state
-            st.session_state.processing_status = True
-            st.session_state.processing = True
-            st.session_state.job_running = True
-            
-            if 'processed_df' not in st.session_state:
-                st.session_state.processed_df = pd.DataFrame()
-            
-            # Create progress indicators
-            progress_text = "Processing users in batches..."
-            my_bar = st.progress(0)
-            status_text = st.empty()
-            
-            def background_processing():
-                try:
-                    num_batches = (total_users + batch_size - 1) // batch_size
-                    
-                    for batch_num in range(num_batches):
-                        if not st.session_state.job_running:
-                            break
-                            
-                        # Calculate batch indices
-                        start_idx = batch_num * batch_size
-                        end_idx = min(start_idx + batch_size, total_users)
-                        
-                        # Get batch data
-                        batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
-                        
-                        if batch_df is not None and not batch_df.empty:
-                            # Update session state with batch results
-                            if 'processed_df' not in st.session_state:
-                                st.session_state.processed_df = batch_df
-                            else:
-                                st.session_state.processed_df = pd.concat(
-                                    [st.session_state.processed_df, batch_df], 
-                                    ignore_index=True
-                                )
-                            
-                            # Update progress
-                            st.session_state.progress = (batch_num + 1) / num_batches
-                            st.session_state.current_batch = batch_num + 1
-                            
-                            # Save progress periodically
-                            if batch_num % 5 == 0:
-                                save_progress_to_file()
-                    
-                    time.sleep(1)  # Prevent API rate limiting
-                
-                except Exception as e:
-                    st.session_state.error_users.append({
-                        'batch': batch_num,
-                        'error': str(e),
-                        'timestamp': datetime.now().isoformat()
-                    })
-                finally:
-                    st.session_state.job_running = False
-                    save_progress_to_file()
-            
-            # Start background processing
-            thread = Thread(target=background_processing)
-            thread.daemon = True  # Make thread daemon so it stops when main thread stops
-            thread.start()
-            
-            # Update UI while processing
-            while st.session_state.job_running:
-                # Update progress bar
-                my_bar.progress(st.session_state.progress)
-                
-                # Update status text
-                current_batch = st.session_state.current_batch
-                status_text.text(f"Processing batch {current_batch}...")
-                
-                # Show interim results
-                if 'processed_df' in st.session_state and not st.session_state.processed_df.empty:
-                    df = st.session_state.processed_df.copy()
-                    st.session_state.df = df
-                    st.session_state.data_loaded = True
-                    
-                    # Display interim analysis
-                    if current_batch % 2 == 0:
-                        st.markdown("## Interim Analysis Results")
-                        self.display_metrics_and_charts(df)
-                        
-                        st.markdown("## Interim Data")
-                        st.dataframe(df)
-                
-                time.sleep(1)
-            
-            # Final update
-            status_text.text("Processing complete!")
-            my_bar.progress(1.0)
-            
-            # Display final results
-            if 'processed_df' in st.session_state and not st.session_state.processed_df.empty:
-                st.success(f"Successfully processed {len(st.session_state.processed_df)} users!")
-                
-                # Add download option
-                csv = st.session_state.processed_df.to_csv(index=False)
-                st.download_button(
-                    label="Download Complete Data as CSV",
-                    data=csv,
-                    file_name="complete_mfa_status.csv",
-                    mime="text/csv"
-                )
-            
-        except Exception as e:
-            st.error(f"Error during batch processing: {str(e)}")
-            st.error(traceback.format_exc())
+def process_users_in_batches(self, total_users: int, batch_size: int = 500):
+    """Process users in batches with background processing"""
+    try:
+        # Initialize processing state
+        st.session_state.processing_status = True
+        st.session_state.processing = True
+        st.session_state.job_running = True
         
-        finally:
-            # Reset processing flags
-            st.session_state.processing_status = False
-            st.session_state.processing = False
-            st.session_state.job_running = False
+        # Initialize processed_df if it doesn't exist or is None
+        if 'processed_df' not in st.session_state or st.session_state.processed_df is None:
+            st.session_state.processed_df = pd.DataFrame()
+        
+        # Initialize other necessary session state variables
+        if 'progress' not in st.session_state:
+            st.session_state.progress = 0
+        if 'current_batch' not in st.session_state:
+            st.session_state.current_batch = 0
+        if 'error_users' not in st.session_state:
+            st.session_state.error_users = []
+
+        progress_text = "Processing users in batches..."
+        my_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Start background processing
+        thread = Thread(target=self.background_processing, args=(total_users, batch_size))
+        thread.daemon = True  # Make thread daemon so it stops when main thread stops
+        thread.start()
+        
+        # Update UI while processing
+        while st.session_state.job_running:
+            # Update progress bar
+            my_bar.progress(st.session_state.progress)
             
-            # Clear interim data
-            if 'processed_df' in st.session_state:
-                del st.session_state.processed_df
+            # Update status text
+            current_batch = st.session_state.current_batch
+            status_text.text(f"Processing batch {current_batch}...")
+            
+            # Show interim results
+            if 'processed_df' in st.session_state and not st.session_state.processed_df.empty:
+                df = st.session_state.processed_df.copy()
+                st.session_state.df = df
+                st.session_state.data_loaded = True
+                
+                # Display interim analysis
+                if current_batch % 2 == 0:
+                    st.markdown("## Interim Analysis Results")
+                    self.display_metrics_and_charts(df)
+                    
+                    st.markdown("## Interim Data")
+                    st.dataframe(df)
+            
+            time.sleep(1)
+        
+        # Final update
+        status_text.text("Processing complete!")
+        my_bar.progress(1.0)
+        
+        # Display final results
+        if 'processed_df' in st.session_state and not st.session_state.processed_df.empty:
+            st.success(f"Successfully processed {len(st.session_state.processed_df)} users!")
+            
+            # Add download option
+            csv = st.session_state.processed_df.to_csv(index=False)
+            st.download_button(
+                label="Download Complete Data as CSV",
+                data=csv,
+                file_name="complete_mfa_status.csv",
+                mime="text/csv"
+            )
+        
+    except Exception as e:
+        st.error(f"Error during batch processing: {str(e)}")
+        st.error(traceback.format_exc())
+    
+    finally:
+        # Reset processing flags
+        st.session_state.processing_status = False
+        st.session_state.processing = False
+        st.session_state.job_running = False
+        
+        # Clear interim data
+        if 'processed_df' in st.session_state:
+            del st.session_state.processed_df
+
+def background_processing(self, total_users: int, batch_size: int):
+    try:
+        num_batches = (total_users + batch_size - 1) // batch_size
+        
+        for batch_num in range(num_batches):
+            if not st.session_state.job_running:
+                break
+                
+            start_idx = batch_num * batch_size
+            batch_df = self.get_mfa_status_cached(
+                token=st.session_state.token,
+                limit=batch_size,
+                skip=start_idx
+            )
+            
+            # Safely handle the DataFrame concatenation
+            if batch_df is not None and not batch_df.empty:
+                if st.session_state.processed_df.empty:
+                    st.session_state.processed_df = batch_df
+                else:
+                    st.session_state.processed_df = pd.concat(
+                        [st.session_state.processed_df, batch_df], 
+                        ignore_index=True
+                    )
+            
+            st.session_state.progress = (batch_num + 1) / num_batches
+            st.session_state.current_batch = batch_num + 1
+            
+            if batch_num % 5 == 0:
+                self.save_progress_to_file()
+            
+            time.sleep(1)  # Prevent overwhelming the system
+            
+    except Exception as e:
+        st.session_state.error_users.append({
+            'batch': st.session_state.current_batch,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        })
+    finally:
+        st.session_state.job_running = False
+        self.save_progress_to_file()
 
     def render_analysis_tab(self):
         """Render the Analysis tab"""
