@@ -20,40 +20,39 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state (merge both initializations)
-defaults = {
-    'job_running': False,
-    'processed_users': [],
-    'error_users': [],
-    'current_batch': 0,
-    'progress': 0,
-    'status_message': "",
-    'results_queue': queue.Queue(),
-    'authenticated': False,
-    'data_loaded': False,
-    'processing': False,
-    'processing_status': False,
-    'refresh_rate_value': 5,
-    'df': None,
-    'token': None
-}
-
-for key, default_value in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = default_value
+def init_session_state():
+    """Initialize session state variables"""
+    defaults = {
+        'job_running': False,
+        'processed_users': [],
+        'error_users': [],
+        'current_batch': 0,
+        'progress': 0,
+        'status_message': "",
+        'processing_status': False,
+        'processing': False,
+        'authenticated': False,
+        'token': None,
+        'processed_df': None,
+        'num_users': 100
+    }
+    
+    for key, default_value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
 
 
 def save_progress_to_file():
     """Save progress to a file"""
     progress_data = {
-        'processed_users': st.session_state.processed_users,
-        'error_users': st.session_state.error_users,
-        'current_batch': st.session_state.current_batch,
-        'progress': st.session_state.progress
+        'processed_users': st.session_state.get('processed_users', []),
+        'error_users': st.session_state.get('error_users', []),
+        'current_batch': st.session_state.get('current_batch', 0),
+        'progress': st.session_state.get('progress', 0)
     }
+    
     with open('.streamlit/progress.json', 'w') as f:
         json.dump(progress_data, f)
-
 def load_progress_from_file():
     """Load progress from file"""
     try:
@@ -74,6 +73,7 @@ def get_mfa_status_cached(user):
     except Exception as e:
         return None
 
+# Your current process_batch function
 def process_batch(users, batch_size=100):
     """Process a batch of users in the background"""
     total_users = len(users)
@@ -83,7 +83,7 @@ def process_batch(users, batch_size=100):
             break
             
         batch = users[i:i+batch_size]
-        for user in batch:
+        for user in batch:  # Processes one user at a time
             try:
                 result = get_mfa_status_cached(user)
                 if result:
@@ -99,11 +99,80 @@ def process_batch(users, batch_size=100):
         st.session_state.progress = min((i + batch_size) / total_users, 1.0)
         st.session_state.current_batch = i // batch_size
         
-        # Save progress periodically
         if i % (batch_size * 5) == 0:
             save_progress_to_file()
         
-        time.sleep(0.1)  # Prevent overwhelming the system
+        time.sleep(0.1)
+
+# Your process_users_in_batches method
+def process_users_in_batches(self, total_users: int, batch_size: int = 500):
+    """Process users in batches with background processing"""
+    try:
+        # Initialize processing state
+        st.session_state.processing_status = True
+        st.session_state.processing = True
+        st.session_state.job_running = True
+        
+        if 'processed_df' not in st.session_state:
+            st.session_state.processed_df = pd.DataFrame()
+        
+        progress_text = "Processing users in batches..."
+        my_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Start background processing
+        thread = threading.Thread(target=self.background_processing)
+        thread.start()
+        
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        st.session_state.job_running = False
+        
+        def background_processing():
+            try:
+                if not st.session_state.get('job_running', False):
+                  return
+                num_batches = (total_users + batch_size - 1) // batch_size
+                
+                for batch_num in range(num_batches):
+                    if not st.session_state.job_running:
+                        break
+                        
+                    start_idx = batch_num * batch_size
+                    # Gets multiple users at once in a DataFrame
+                    batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
+                    
+                    if batch_df is not None and not batch_df.empty:
+                        # Concatenates DataFrames
+                        if 'processed_df' not in st.session_state:
+                            st.session_state.processed_df = batch_df
+                        else:
+                            st.session_state.processed_df = pd.concat(
+                                [st.session_state.processed_df, batch_df], 
+                                ignore_index=True
+                            )
+                    
+                    st.session_state.progress = (batch_num + 1) / num_batches
+                    st.session_state.current_batch = batch_num + 1
+                    
+                    if batch_num % 5 == 0:
+                        save_progress_to_file()
+                
+                time.sleep(1)
+            
+            except Exception as e:
+              if 'error_users' in st.session_state:
+                st.session_state.error_users.append({
+                'batch': st.session_state.get('current_batch', 0),
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            })
+            finally:
+              if 'job_running' in st.session_state:
+                st.session_state.job_running = False
+              save_progress_to_file()
+
+
 
 def start_processing():
     """Start the processing job"""
@@ -114,8 +183,14 @@ def start_processing():
         
         def background_process():
             try:
-                num_batches = (total_users + batch_size - 1) // batch_size
-                for batch_num in range(num_batches):
+                # Check if session state variables exist
+                 if 'processed_users' not in st.session_state:
+                        st.session_state.processed_users = []
+                 if 'error_users' not in st.session_state:
+                        st.session_state.error_users = []
+                    
+                 num_batches = (total_users + batch_size - 1) // batch_size
+                 for batch_num in range(num_batches):
                     if not st.session_state.job_running:
                         break
                         
@@ -479,6 +554,7 @@ class UserAnalyzer:
 # Add the Dashboard class
 class Dashboard:
     def __init__(self):
+        init_session_state()
         self.setup_page()
         self.init_session_state()
         self.analyzer = UserAnalyzer()
