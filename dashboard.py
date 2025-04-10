@@ -11,6 +11,7 @@ from mfa_status import get_mfa_status
 # Set page config at the very top of dashboard.py
 st.set_page_config(
     page_title="MFA Status Check",
+    page_icon="🔒",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -302,11 +303,7 @@ class Dashboard:
         
     def setup_page(self):
         """Configure basic page settings"""
-        st.set_page_config(
-            page_title="MFA Status Checker",
-            page_icon="🔒",
-            layout="wide"
-        )
+        pass
     
     def init_session_state(self):
         """Initialize session state variables"""
