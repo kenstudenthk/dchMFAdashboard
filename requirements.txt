@@ -1,0 +1,7 @@
+streamlit
+selenium
+webdriver_manager
+pandas
+msal==1.24.1
+requests
+plotly
