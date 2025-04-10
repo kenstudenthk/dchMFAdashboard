@@ -1,4 +1,13 @@
 import streamlit as st
+
+# This must be the first Streamlit command
+st.set_page_config(
+    page_title="MFA Dashboard",
+    page_icon="🔐",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
@@ -8,13 +17,7 @@ from typing import Optional
 from auth import GraphAuth, init_auth, check_auth  # Added check_auth here
 from mfa_status import get_mfa_status
 
-# Set page config at the very top of dashboard.py
-st.set_page_config(
-    page_title="MFA Status Check",
-    page_icon="🔒",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+
 
 # Initialize session state
 if 'processed_count' not in st.session_state:
