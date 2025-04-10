@@ -6,6 +6,12 @@ import traceback
 from typing import Optional, Dict, List
 from datetime import datetime
 
+st.set_page_config(
+    page_title="MFA Status Check",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # License mapping dictionary
 LICENSE_MAPPING = {
     "c42b9cae-ea4f-4ab7-9717-81576235ccac": "DevTools E5",
@@ -139,13 +145,17 @@ def process_user_batch(headers, users_batch, processed_count, total_limit):
     return batch_data, batch_errors, processed_count
 def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFrame]:
     try:
+        # Initialize session state for progress tracking
+        if 'processed_count' not in st.session_state:
+            st.session_state.processed_count = 0
+            st.session_state.mfa_data = []
+            st.session_state.error_users = []
+        
         st.write(f"Starting MFA status check (Batch: Skip {skip}, Limit {limit})...")
         
         # Initialize variables
         headers = {'Authorization': f'Bearer {token}'}
         BATCH_SIZE = 40
-        mfa_data = []
-        error_users = []
         
         # Setup progress tracking
         progress_bar = st.progress(0)
@@ -163,10 +173,12 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
             
         total_users = int(count_response.text)
         actual_limit = min(limit, total_users - skip)
-        processed_count = 0
         
-        # Process users in batches - Fixed the f-string here
-                # Modified API URL to explicitly request signInActivity
+        # Use session state for tracking
+        processed_count = st.session_state.processed_count
+        mfa_data = st.session_state.mfa_data
+        error_users = st.session_state.error_users
+        
         next_link = (
             f'https://graph.microsoft.com/v1.0/users'
             f'?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses'
@@ -174,62 +186,66 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
         )
         
         while next_link and processed_count < actual_limit:
-            users_response = requests.get(next_link, headers=headers)
-            
-            if users_response.status_code != 200:
-                st.error(f"Users API Error: {users_response.status_code} - {users_response.text}")
-                return None
-            
-            response_data = users_response.json()
-            users_data = response_data.get('value', [])
-            
-            # Process current batch
-            remaining = actual_limit - processed_count
-            users_to_process = min(len(users_data), remaining)
-            current_batch = users_data[:users_to_process]
-            
-            batch_start = processed_count + 1
-            batch_end = processed_count + users_to_process
-            st.info(f"Processing users {batch_start} to {batch_end}")
-            
-            # Process batch
-            batch_data, batch_errors, processed_count = process_user_batch(
-                headers, current_batch, processed_count, actual_limit
-            )
-            
-            mfa_data.extend(batch_data)
-            error_users.extend(batch_errors)
-            
-            # Update progress
-            progress = processed_count / actual_limit
-            progress_bar.progress(progress)
-            status_text.text(f"Processing user {processed_count} of {actual_limit}")
-            
-            # Get next batch link
-            next_link = response_data.get('@odata.nextLink')
-            if processed_count >= actual_limit:
-                break
+            try:
+                users_response = requests.get(next_link, headers=headers)
+                
+                if users_response.status_code != 200:
+                    st.error(f"Users API Error: {users_response.status_code} - {users_response.text}")
+                    return None
+                
+                response_data = users_response.json()
+                users_data = response_data.get('value', [])
+                
+                # Process current batch
+                remaining = actual_limit - processed_count
+                users_to_process = min(len(users_data), remaining)
+                current_batch = users_data[:users_to_process]
+                
+                batch_start = processed_count + 1
+                batch_end = processed_count + users_to_process
+                st.info(f"Processing users {batch_start} to {batch_end}")
+                
+                # Process batch
+                batch_data, batch_errors, new_processed_count = process_user_batch(
+                    headers, current_batch, processed_count, actual_limit
+                )
+                
+                # Update session state
+                mfa_data.extend(batch_data)
+                error_users.extend(batch_errors)
+                processed_count = new_processed_count
+                
+                st.session_state.processed_count = processed_count
+                st.session_state.mfa_data = mfa_data
+                st.session_state.error_users = error_users
+                
+                # Update progress
+                progress = processed_count / actual_limit
+                progress_bar.progress(progress)
+                status_text.text(f"Processing user {processed_count} of {actual_limit}")
+                
+                next_link = response_data.get('@odata.nextLink')
+                if processed_count >= actual_limit:
+                    break
+                    
+            except Exception as e:
+                st.error(f"Error processing batch: {str(e)}")
+                continue
         
-        # Process results
-     # After processing all data and creating DataFrame
+        # Process final results
         if mfa_data:
             df = pd.DataFrame(mfa_data)
             
-            # Add analysis of sign-in data
-            total_users = len(df)
-            users_with_interactive = (df['LastInteractiveSignIn'] != 'Never').sum()
-            users_with_noninteractive = (df['LastNonInteractiveSignIn'] != 'Never').sum()
-            
-            st.write("Sign-in Activity Analysis:")
-            st.write(f"Total Users: {total_users}")
-            st.write(f"Users with Interactive Sign-ins: {users_with_interactive}")
-            st.write(f"Users with Non-Interactive Sign-ins: {users_with_noninteractive}")
+            # Clear session state after successful completion
+            st.session_state.processed_count = 0
+            st.session_state.mfa_data = []
+            st.session_state.error_users = []
             
             return df
         else:
             st.warning("No data was collected")
             return None
-        
+            
     except Exception as e:
         st.error(f"MFA status error: {str(e)}")
         st.code(traceback.format_exc())

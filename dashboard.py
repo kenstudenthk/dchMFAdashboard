@@ -8,35 +8,65 @@ from typing import Optional
 from auth import GraphAuth, init_auth, check_auth  # Added check_auth here
 from mfa_status import get_mfa_status
 
+# Set page config at the very top of dashboard.py
+st.set_page_config(
+    page_title="MFA Status Check",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Initialize session state
+if 'processed_count' not in st.session_state:
+    st.session_state.processed_count = 0
+    st.session_state.mfa_data = []
+    st.session_state.error_users = []
+
 class UserAnalyzer:
     def render_data_collection_tab(self):
-        """Render the Data Collection tab"""
-        st.header("📊 Data Collection")
-        st.markdown("---")
-        
-        num_users = st.number_input(
-            "Number of users to process",
-            min_value=1,
-            max_value=500,
-            value=st.session_state.get('num_users', 100),
-            step=10
-        )
-        st.session_state.num_users = num_users
-        
-        col1, col2, col3 = st.columns([2, 2, 1])
-        
-        with col1:
-            if st.button("🔍 Process Users", key="process_users", use_container_width=True):
-                self.process_users(num_users)
-        
-        with col2:
-            if st.button("👥 Process All Users (Batch)", key="process_all_users", use_container_width=True):
-                self.process_users_in_batches(13000, batch_size=500)  # Process all 13000 users in batches of 500
-        
-        with col3:
-            if st.button("Logout", key="logout_button", use_container_width=True):
-                self.handle_logout()
+      """Render the Data Collection tab"""
+      st.header("📊 Data Collection")
+      st.markdown("---")
+    
+      token = st.text_input("Enter token", type="password")
+      num_users = st.number_input(
+        "Number of users to process",
+        min_value=1,
+        max_value=500,
+        value=st.session_state.get('num_users', 100),
+        step=10
+    )
+      st.session_state.num_users = num_users
+    
+    # Modified column layout to include cancel button
+      col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+    
+      with col1:
+        if st.button("🔍 Process Users", key="process_users", use_container_width=True):
+            self.process_users(num_users)
+    
+      with col2:
+        if st.button("👥 Process All Users (Batch)", key="process_all_users", use_container_width=True):
+            self.process_users_in_batches(13000, batch_size=500)
+    
+      with col3:
+        if st.button("Logout", key="logout_button", use_container_width=True):
+            self.handle_logout()
+    
+      with col4:
+        # Add cancel button
+        if st.button("❌ Cancel", key="cancel_processing", use_container_width=True):
+            st.session_state.processed_count = 0
+            st.session_state.mfa_data = []
+            st.session_state.error_users = []
+            st.session_state.processing = False
+            st.session_state.processing_status = False
+            if 'processed_df' in st.session_state:
+                del st.session_state.processed_df
+            st.experimental_rerun()
 
+    # Show processing status if active
+      if st.session_state.processing:
+        st.info("Processing in progress... Use the Cancel button to stop.")
     def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         """Process users in batches"""
         try:
@@ -58,36 +88,44 @@ class UserAnalyzer:
             
             # Process each batch
             for batch_num in range(num_batches):
-                start_idx = batch_num * batch_size
-                end_idx = min(start_idx + batch_size, total_users)
-                
-                status_text.text(f"Processing batch {batch_num + 1}/{num_batches} (Users {start_idx + 1} to {end_idx})")
-                
-                # Get batch data
-                batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
-                
-                if batch_df is not None and not batch_df.empty:
-                    # Append batch results to main DataFrame
-                    st.session_state.processed_df = pd.concat([st.session_state.processed_df, batch_df], ignore_index=True)
+                # Check if processing was cancelled
+                if st.session_state.get('processing', True):
+                    # Calculate batch indices
+                    start_idx = batch_num * batch_size
+                    end_idx = min(start_idx + batch_size, total_users)
                     
-                    # Update progress
-                    progress = (batch_num + 1) / num_batches
-                    my_bar.progress(progress)
+                    # Update status
+                    status_text.text(f"Processing batch {batch_num + 1}/{num_batches} (Users {start_idx + 1} to {end_idx})")
                     
-                    # Display interim results
-                    if (batch_num + 1) % 2 == 0 or batch_num == num_batches - 1:  # Update display every 2 batches or at the end
-                        st.session_state.df = st.session_state.processed_df.copy()
-                        st.session_state.data_loaded = True
+                    # Get batch data
+                    batch_df = get_mfa_status(st.session_state.token, batch_size, start_idx)
+                    
+                    if batch_df is not None and not batch_df.empty:
+                        # Append batch results to main DataFrame
+                        st.session_state.processed_df = pd.concat([st.session_state.processed_df, batch_df], ignore_index=True)
                         
-                        # Display interim analysis
-                        st.markdown("## Interim Analysis Results")
-                        self.display_metrics_and_charts(st.session_state.df)
+                        # Update progress
+                        progress = (batch_num + 1) / num_batches
+                        my_bar.progress(progress)
                         
-                        # Display interim data table
-                        st.markdown("## Interim Data")
-                        st.dataframe(st.session_state.df)
-                
-                time.sleep(1)  # Small delay to prevent API rate limiting
+                        # Display interim results
+                        if (batch_num + 1) % 2 == 0 or batch_num == num_batches - 1:
+                            st.session_state.df = st.session_state.processed_df.copy()
+                            st.session_state.data_loaded = True
+                            
+                            # Display interim analysis
+                            st.markdown("## Interim Analysis Results")
+                            self.display_metrics_and_charts(st.session_state.df)
+                            
+                            # Display interim data table
+                            st.markdown("## Interim Data")
+                            st.dataframe(st.session_state.df)
+                    
+                    # Add delay to prevent API rate limiting
+                    time.sleep(1)
+                else:
+                    st.warning("Processing cancelled by user")
+                    return
             
             # Final update
             status_text.text("Processing complete!")
@@ -117,72 +155,6 @@ class UserAnalyzer:
             # Clear interim data
             if 'processed_df' in st.session_state:
                 del st.session_state.processed_df
-
-    def process_users(self, num_users: int):
-        """Process specified number of users"""
-        try:
-            # Initialize processing state
-            st.session_state.original_refresh_value = st.session_state.refresh_rate_value
-            st.session_state.processing_status = True
-            st.session_state.processing = True
-            
-            # Debug information
-            st.write(f"Starting process_users with num_users={num_users}")
-            
-            # Create progress bar
-            progress_text = "Processing users..."
-            my_bar = st.progress(0)
-
-            with st.spinner(progress_text):
-                # Get the data
-                df = get_mfa_status(st.session_state.token, num_users)
-                
-                # Debug information
-                st.write(f"Data received: {'Success' if df is not None else 'None'}")
-                if df is not None:
-                    st.write(f"DataFrame shape: {df.shape}")
-                
-                # Check and save data
-                if df is not None and not df.empty:
-                    st.session_state.df = df
-                    st.session_state.data_loaded = True
-                    
-                    # Debug information
-                    st.write("Data saved to session state")
-                    st.write(f"Session state data_loaded: {st.session_state.data_loaded}")
-                    
-                    st.success(f"Successfully processed {len(df)} users!")
-                    
-                    # Display analysis
-                    st.markdown("## Analysis Results")
-                    self.display_metrics_and_charts(df)
-                    
-                    # Display data table
-                    st.markdown("## Detailed Data")
-                    st.dataframe(df)
-                    
-                    # Add download option
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        label="Download Data as CSV",
-                        data=csv,
-                        file_name="mfa_status.csv",
-                        mime="text/csv"
-                    )
-                else:
-                    st.warning("No data was returned. Please check the connection.")
-                
-                my_bar.progress(100)
-        
-        except Exception as e:
-            st.error(f"Error during processing: {str(e)}")
-            st.error(traceback.format_exc())
-        
-        finally:
-            # Reset processing flags
-            st.session_state.refresh_rate_value = st.session_state.original_refresh_value
-            st.session_state.processing_status = False
-            st.session_state.processing = False
 
     def render_analysis_tab(self):
         """Render the Analysis tab"""
@@ -407,6 +379,7 @@ class Dashboard:
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
+                   
 
 # Add the main execution
 if __name__ == "__main__":
