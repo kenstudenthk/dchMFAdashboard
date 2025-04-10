@@ -82,7 +82,7 @@ class UserAnalyzer:
 
     def init_session_state(self):
         """Initialize session state variables"""
-    defaults = {
+        defaults = {
         'job_running': False,
         'processed_users': [],
         'error_users': [],
@@ -99,9 +99,9 @@ class UserAnalyzer:
         'df': None
     }
     
-    for key, default_value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default_value
+        for key, default_value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = default_value
 
     def render_data_collection_tab(self):
         """Render the Data Collection tab"""
@@ -140,60 +140,60 @@ class UserAnalyzer:
         if st.session_state.get('processing', False):
             st.info("Processing in progress... Use the Cancel button to stop.")
 
-def process_users_in_batches(self, total_users: int, batch_size: int = 100):
-    """Process users in batches with background processing"""
-    try:
-        # Initialize states
-        st.session_state.processing = True
-        st.session_state.job_running = True
-        st.session_state.progress = 0
-        st.session_state.current_batch = 0
-        st.session_state.processed_df = pd.DataFrame()
+    def process_users_in_batches(self, total_users: int, batch_size: int = 100):
+        """Process users in batches with background processing"""
+        try:
+            # Initialize states
+            st.session_state.processing = True
+            st.session_state.job_running = True
+            st.session_state.progress = 0
+            st.session_state.current_batch = 0
+            st.session_state.processed_df = pd.DataFrame()
 
-        # Create progress indicators
-        progress_container = st.empty()
-        status_container = st.empty()
-        data_container = st.empty()
+            # Create progress indicators
+            progress_container = st.empty()
+            status_container = st.empty()
+            data_container = st.empty()
         
-        # Start background processing
-        thread = Thread(target=self.background_processing, args=(total_users, batch_size))
-        thread.daemon = True
-        thread.start()
+            # Start background processing
+            thread = Thread(target=self.background_processing, args=(total_users, batch_size))
+            thread.daemon = True
+            thread.start()
         
-        # Update UI while processing
-        while st.session_state.job_running:
-            # Update progress bar
-            progress_container.progress(st.session_state.progress)
-            current_batch = st.session_state.current_batch
-            status_container.text(f"Processing batch {current_batch}... ({len(st.session_state.processed_df)} users processed)")
-            
-            # Update data display
-            if not st.session_state.processed_df.empty:
-                df = st.session_state.processed_df.copy()
-                st.session_state.df = df
-                st.session_state.data_loaded = True
+            # Update UI while processing
+            while st.session_state.job_running:
+                # Update progress bar
+                progress_container.progress(st.session_state.progress)
+                current_batch = st.session_state.current_batch
+                status_container.text(f"Processing batch {current_batch}... ({len(st.session_state.processed_df)} users processed)")
                 
-                if current_batch % 2 == 0:
-                    with data_container.container():
-                        st.markdown("### Current Results")
-                        self.display_metrics_and_charts(df)
-                        st.dataframe(df)
+                # Update data display
+                if not st.session_state.processed_df.empty:
+                    df = st.session_state.processed_df.copy()
+                    st.session_state.df = df
+                    st.session_state.data_loaded = True
+                    
+                    if current_batch % 2 == 0:
+                        with data_container.container():
+                            st.markdown("### Current Results")
+                            self.display_metrics_and_charts(df)
+                            st.dataframe(df)
+                
+                time.sleep(1)
             
-            time.sleep(1)
-        
-        # Final updates
-        progress_container.progress(1.0)
-        status_container.success(f"Processing complete! Processed {len(st.session_state.processed_df)} users")
-        
-        if not st.session_state.processed_df.empty:
-            self.offer_download(st.session_state.processed_df)
-        
-    except Exception as e:
-        st.error(f"Error during batch processing: {str(e)}")
-        st.error(traceback.format_exc())
-    finally:
-        st.session_state.processing = False
-        st.session_state.job_running = False
+            # Final updates
+            progress_container.progress(1.0)
+            status_container.success(f"Processing complete! Processed {len(st.session_state.processed_df)} users")
+            
+            if not st.session_state.processed_df.empty:
+                self.offer_download(st.session_state.processed_df)
+            
+        except Exception as e:
+            st.error(f"Error during batch processing: {str(e)}")
+            st.error(traceback.format_exc())
+        finally:
+            st.session_state.processing = False
+            st.session_state.job_running = False
 
 def process_users(self, num_users: int):
     """Process a specific number of users"""
