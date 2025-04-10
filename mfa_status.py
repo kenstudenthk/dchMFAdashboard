@@ -139,14 +139,6 @@ def process_user_batch(headers, users_batch, processed_count, total_limit):
             
     return batch_data, batch_errors, processed_count
 def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFrame]:
-    """
-    Get MFA status for users with pagination support
-    
-    Args:
-        token: Authentication token
-        limit: Number of users to retrieve
-        skip: Number of users to skip (for pagination)
-    """
     try:
         st.write(f"Starting MFA status check (Batch: Skip {skip}, Limit {limit})...")
         
@@ -171,13 +163,11 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
             return None
             
         total_users = int(count_response.text)
-        actual_limit = min(limit, total_users - skip)  # Changed from user_limit to limit
+        actual_limit = min(limit, total_users - skip)
         processed_count = 0
         
-        # Rest of the code stays the same...
-        
-        # Process users in batches
-        next_link = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses&$top={BATCH_SIZE}'
+        # Process users in batches - Fixed the f-string here
+        next_link = f'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses&$top={BATCH_SIZE}'
         
         while next_link and processed_count < actual_limit:
             users_response = requests.get(next_link, headers=headers)
