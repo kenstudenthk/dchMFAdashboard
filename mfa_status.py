@@ -108,12 +108,17 @@ def process_user_batch(headers, users_batch, processed_count, total_limit):
                 
             mfa_methods = mfa_response.json().get('value', [])
             
+            # Get sign in activity details
+            sign_in_activity = user.get('signInActivity', {})
+            
             # Process user data
             user_data = {
                 'UserPrincipalName': user.get('userPrincipalName', ''),
                 'DisplayName': user.get('displayName', ''),
                 'CreatedDateTime': user.get('createdDateTime', ''),
-                'LastSignIn': user.get('signInActivity', {}).get('lastSignInDateTime', ''),
+                'LastSignIn': sign_in_activity.get('lastSignInDateTime', ''),
+                'LastInteractiveSignIn': sign_in_activity.get('lastInteractiveSignInDateTime', ''),
+                'LastNonInteractiveSignIn': sign_in_activity.get('lastNonInteractiveSignInDateTime', ''),
                 'MFAMethods': [method.get('@odata.type', '').split('.')[-1] for method in mfa_methods],
                 'MFACount': len(mfa_methods),
                 'HasMFA': len(mfa_methods) > 0
@@ -172,7 +177,7 @@ def get_mfa_status(token: str, limit: int, skip: int = 0) -> Optional[pd.DataFra
         # Rest of the code stays the same...
         
         # Process users in batches
-        next_link = f'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses&$top={BATCH_SIZE}'
+        next_link = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,createdDateTime,signInActivity,assignedLicenses&$top={BATCH_SIZE}'
         
         while next_link and processed_count < actual_limit:
             users_response = requests.get(next_link, headers=headers)
