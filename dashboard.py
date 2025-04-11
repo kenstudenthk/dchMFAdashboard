@@ -8,6 +8,15 @@ import pandas as pd
 import plotly.express as px
 from collections import Counter
 
+# Initialize session state variables at the very beginning
+if 'token' not in st.session_state:
+    st.session_state.token = None
+if 'data_fetched' not in st.session_state:
+    st.session_state.data_fetched = False
+if 'user_data' not in st.session_state:
+    st.session_state.user_data = None
+
+
 # Dashboard Functions
 TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  
 CLIENT_ID = "1b730954-1685-4b74-9bfd-dac224a7b894"
@@ -132,50 +141,42 @@ def get_user_data(token):
         next_link = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
         all_users = []
         
-        while next_link:
-            response = requests.get(next_link, headers=headers)
-            
-            if response.status_code != 200:
-                st.error(f"Failed to fetch users. Status code: {response.status_code}")
-                st.error(f"Error message: {response.text}")
-                return None
+        with st.spinner('Fetching all users...'):
+            while next_link:
+                response = requests.get(next_link, headers=headers)
+                
+                if response.status_code != 200:
+                    st.error(f"Failed to fetch users. Status code: {response.status_code}")
+                    st.error(f"Error message: {response.text}")
+                    return None
 
-            data = response.json()
-            all_users.extend(data.get('value', []))
-            next_link = data.get('@odata.nextLink')  # Get the next page link
-            
-            st.write(f"Fetched {len(all_users)} users so far...")
+                data = response.json()
+                all_users.extend(data.get('value', []))
+                next_link = data.get('@odata.nextLink')
+                st.write(f"Fetched {len(all_users)} users so far...")
 
-        st.write(f"Found {len(all_users)} total users")
-        
+        st.write(f"Processing {len(all_users)} users...")
         progress_bar = st.progress(0)
-        progress_text = st.empty()
         
-        # Process all users
         for i, user in enumerate(all_users):
-            progress_text.write(f"Processing user {i+1} of {len(all_users)}: {user.get('displayName', 'Unknown')}")
-            
             if not user.get('accountEnabled', False):
                 continue
             
             user_id = user['id']
             
             # Get MFA status
-            progress_text.write(f"Checking MFA status for {user.get('displayName', 'Unknown')}...")
             mfa_response = requests.get(
                 f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
                 headers=headers
             )
             
             # Get license details
-            progress_text.write(f"Checking license details for {user.get('displayName', 'Unknown')}...")
             license_response = requests.get(
                 f'https://graph.microsoft.com/v1.0/users/{user_id}/licenseDetails',
                 headers=headers
             )
             
             if license_response.status_code != 200:
-                st.warning(f"Failed to get license details for {user.get('displayName', 'Unknown')}")
                 continue
             
             licenses = []
@@ -191,10 +192,10 @@ def get_user_data(token):
                     has_target_license = True
             
             # Check if MFA is required
-            mfa_enabled = True  # Default to True
+            mfa_enabled = True
             if mfa_response.status_code == 200:
                 mfa_data = mfa_response.json()
-                mfa_enabled = bool(mfa_data)  # If requirements exist, MFA is enabled
+                mfa_enabled = bool(mfa_data)
             
             # Only include users with E1/E3 license and no MFA
             if has_target_license and not mfa_enabled:
@@ -210,16 +211,11 @@ def get_user_data(token):
             
             progress_bar.progress((i + 1) / len(all_users))
         
-        progress_bar.empty()
-        progress_text.empty()
-        
         if not users_data:
             st.warning("No users found matching the criteria (E1/E3 license with MFA disabled)")
             return None
             
         df = pd.DataFrame(users_data)
-        
-        # Convert datetime strings to more readable format
         df['Creation Date'] = pd.to_datetime(df['Creation Date']).dt.strftime('%Y-%m-%d %H:%M:%S')
         df['Last Interactive SignIn'] = pd.to_datetime(df['Last Interactive SignIn']).dt.strftime('%Y-%m-%d %H:%M:%S')
         
@@ -232,9 +228,7 @@ def get_user_data(token):
 def main():
     st.title("Microsoft Graph User Report")
     
-    if 'token' not in st.session_state:
-        st.session_state.token = None
-    
+    # Login Section
     if not st.session_state.token:
         if st.button("Login to Microsoft", type="primary"):
             device_code_response = get_device_code()
@@ -246,7 +240,7 @@ def main():
                 2. Enter this code:
                 """)
                 st.code(device_code_response['user_code'])
-                st.write(device_code_response.get('message', ''))  # Show Microsoft's instructions
+                st.write(device_code_response.get('message', ''))
                 
                 with st.spinner("Waiting for authentication..."):
                     interval = int(device_code_response.get('interval', 5))
@@ -261,36 +255,39 @@ def main():
                             st.rerun()
                             break
                         time.sleep(interval)
+    
+    # Data Section
     else:
         st.write("Currently logged in")
         
         col1, col2 = st.columns(2)
+        
         with col1:
             if st.button("Get User Report", type="primary"):
-                with st.spinner("Fetching user data..."):
-                    df = get_user_data(st.session_state.token)
-                    
-                    if df is not None and not df.empty:
-                        st.write(f"Found {len(df)} users with E1/E3 license and MFA disabled")
-                        
-                        # Display results
-                        st.dataframe(df)
-                        
-                        # Export options
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("Export to Excel"):
-                                df.to_excel("user_report.xlsx", index=False)
-                                st.success("Exported to Excel!")
-                        with col2:
-                            if st.button("Export to CSV"):
-                                df.to_csv("user_report.csv", index=False)
-                                st.success("Exported to CSV!")
+                st.session_state.data = get_user_data(st.session_state.token)
         
         with col2:
             if st.button("Logout"):
                 st.session_state.token = None
+                st.session_state.data = None
                 st.rerun()
+        
+        # Display data if available
+        if st.session_state.data is not None:
+            st.write(f"Found {len(st.session_state.data)} users with E1/E3 license and MFA disabled")
+            st.dataframe(st.session_state.data)
+            
+            # Export options
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Export to Excel"):
+                    st.session_state.data.to_excel("user_report.xlsx", index=False)
+                    st.success("Exported to Excel!")
+            with col2:
+                if st.button("Export to CSV"):
+                    st.session_state.data.to_csv("user_report.csv", index=False)
+                    st.success("Exported to CSV!")
+
 def check_token_valid():
     if 'token' not in st.session_state:
         return False
