@@ -1,20 +1,26 @@
 # save_state.py
-
+import streamlit as st
 import os
 from typing import List
 
-# Azure AD Configuration
-CLIENT_ID = "b3eee569-7d4b-4976-9af4-9f683063448f"
-TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"
-
-# Required Microsoft Graph API Scopes as a list
-SCOPES = [
-    'User.Read',
-    'User.Read.All',
-    'Directory.Read.All',
-    'UserAuthenticationMethod.Read.All',
-    'AuditLog.Read.All'
-]
-
-# Graph API endpoint
+# save_state.py
+GRAPH_TOKEN = "YOUR_ACCESS_TOKEN"  # Token from Graph Explorer
 ENDPOINT = "https://graph.microsoft.com/v1.0"
+
+# Simple auth check
+def check_auth():
+    return bool(st.session_state.get('token'))
+
+# Simple login page
+def render_login():
+    st.title("🔐 MFA Status Report")
+    st.markdown("### Authentication Required")
+    
+    with st.form("token_form"):
+        token = st.text_input("Enter your Microsoft Graph access token:", type="password")
+        submitted = st.form_submit_button("Login")
+        
+        if submitted and token:
+            st.session_state.token = token
+            st.success("Authentication successful!")
+            st.rerun()
