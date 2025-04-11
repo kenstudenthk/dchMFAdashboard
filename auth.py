@@ -2,7 +2,7 @@
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
-import json
+import time
 
 class GraphPermissionError(Exception):
     """Custom exception for Graph API permission errors"""
@@ -17,114 +17,36 @@ class GraphPermissionError(Exception):
             return self.error_data['error']['message']
         return f"Access denied to {self.endpoint}"
 
-def verify_permissions(token: str) -> tuple[bool, list]:
-    """
-    Verify all required Graph API permissions
-    Returns: (success, missing_permissions)
-    """
-    headers = {'Authorization': f'Bearer {token}'}
-    permission_checks = [
-    {
-        'endpoint': 'https://graph.microsoft.com/v1.0/me',
-        'permission': 'User.Read',
-        'description': 'Read your profile'
-    },
-    {
-        'endpoint': 'https://graph.microsoft.com/v1.0/users',
-        'permission': 'User.Read.All',
-        'description': "Read all users' profiles"  # Using double quotes here
-    },
-    {
-        'endpoint': 'https://graph.microsoft.com/v1.0/reports/authenticationMethods',
-        'permission': 'Reports.Read.All',
-        'description': 'Read authentication methods'
-    },
-    {
-        'endpoint': 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName',
-        'permission': 'Directory.Read.All',
-        'description': 'Read directory data'
-    }
-]
-    
-    missing_permissions = []
-    
-    for check in permission_checks:
-        try:
-            response = requests.get(check['endpoint'], headers=headers)
-            if response.status_code in [401, 403]:
-                missing_permissions.append(check)
-        except Exception:
-            missing_permissions.append(check)
-    
-    return len(missing_permissions) == 0, missing_permissions
-
-def verify_token(token: str) -> bool:
-    """Verify if the token is valid and has required permissions"""
-    try:
-        has_permissions, missing = verify_permissions(token)
-        
-        if not has_permissions:
-            st.error("❌ Token lacks required permissions:")
-            for perm in missing:
-                st.error(f"- {perm['permission']}: {perm['description']}")
-            
-            st.markdown("""
-            ### How to Fix Permission Issues:
-            1. Go to [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
-            2. Click your profile icon → "Select permissions"
-            3. Search for and enable these permissions:
-                - User.Read
-                - User.Read.All
-                - Directory.Read.All
-                - Reports.Read.All
-            4. Click "Consent"
-            5. Get a new token
-            """)
-            return False
-            
-        return True
-        
-    except Exception as e:
-        st.error(f"Verification error: {str(e)}")
-        return False
-
 def make_graph_request(endpoint: str, token: str) -> dict:
-    """
-    Make a request to Microsoft Graph API with error handling
-    """
+    """Make a request to Microsoft Graph API with error handling"""
     try:
         headers = {
             'Authorization': f'Bearer {token}',
-            'ConsistencyLevel': 'eventual'  # Add this for better performance
+            'ConsistencyLevel': 'eventual'
         }
         
         response = requests.get(
             endpoint,
             headers=headers,
-            timeout=30  # Add timeout
+            timeout=30
         )
         
         if response.status_code == 200:
             return response.json()
             
-        error_data = response.json()
+        error_data = response.json() if response.text else {}
         
         if response.status_code in [401, 403]:
-            # Token expired or permission issues
             st.error("🔑 Access Denied - Please check permissions and try again")
             logout(show_message=False)
             st.stop()
-            
         elif response.status_code == 404:
             st.error(f"❌ Resource not found: {endpoint}")
-            
         elif response.status_code == 429:
-            # Rate limiting
             st.warning("⚠️ Too many requests. Please wait a moment and try again.")
             retry_after = int(response.headers.get('Retry-After', 30))
             time.sleep(retry_after)
-            return make_graph_request(endpoint, token)  # Retry
-            
+            return make_graph_request(endpoint, token)
         else:
             st.error(f"API Error ({response.status_code}): {error_data.get('error', {}).get('message')}")
             
@@ -139,26 +61,44 @@ def make_graph_request(endpoint: str, token: str) -> dict:
     
     return None
 
+def check_auth() -> bool:
+    """Check if user is authenticated and token is not expired"""
+    if not st.session_state.get('token'):
+        return False
+        
+    if st.session_state.get('token_timestamp'):
+        token_age = datetime.now() - st.session_state.token_timestamp
+        if token_age > timedelta(hours=1):
+            st.warning("🔄 Token has expired. Please login again.")
+            logout(show_message=False)
+            return False
+            
+    return True
+
+def verify_token(token: str) -> bool:
+    """Verify if the token is valid"""
+    try:
+        headers = {'Authorization': f'Bearer {token}'}
+        response = requests.get(
+            'https://graph.microsoft.com/v1.0/me',
+            headers=headers
+        )
+        return response.status_code == 200
+    except:
+        return False
+
 def render_login():
     """Render the login page"""
     st.title("🔐 MFA Status Report")
     
-    with st.expander("📋 Required Permissions", expanded=True):
-        st.markdown("""
-        This app requires the following Microsoft Graph permissions:
-        - **User.Read**: Read your basic profile
-        - **User.Read.All**: Read all users' profiles
-        - **Directory.Read.All**: Read directory data
-        - **Reports.Read.All**: Read authentication method reports
-        
-        To grant these permissions:
-        1. Go to [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
-        2. Sign in with your work account
-        3. Click your profile picture → "Select permissions"
-        4. Search for and enable each permission above
-        5. Click "Consent" to approve
-        6. Get a new token
-        """)
+    st.markdown("""
+    ### Get Your Access Token:
+    1. Go to [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
+    2. Sign in with your Microsoft account
+    3. Click your profile icon
+    4. Select "Access Token"
+    5. Copy the token and paste below
+    """)
     
     with st.form("token_form"):
         token = st.text_input("Access Token:", type="password")
@@ -170,12 +110,12 @@ def render_login():
                 st.session_state.token_timestamp = datetime.now()
                 st.success("✅ Authentication successful!")
                 st.rerun()
+            else:
+                st.error("❌ Invalid token. Please try again.")
 
-    with st.expander("🔍 Troubleshooting"):
-        st.markdown("""
-        Common Error Solutions:
-        1. **Access Denied**: Make sure you've granted all required permissions
-        2. **Token Expired**: Get a new token (tokens expire after 1 hour)
-        3. **Wrong Account**: Use your work/school account, not personal
-        4. **Admin Consent**: Some permissions may need admin approval
-        """)
+def logout(show_message: bool = True):
+    """Clear the session state to logout"""
+    st.session_state.clear()
+    if show_message:
+        st.success("👋 Logged out successfully!")
+    st.rerun()
