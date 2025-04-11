@@ -63,48 +63,67 @@ To add permissions:
 def verify_token(token: str) -> bool:
     """Verify if the token is valid and has required permissions"""
     try:
-        headers = {'Authorization': f'Bearer {token}'}
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'ConsistencyLevel': 'eventual'
+        }
         
-        # Check token info
-        st.write("Checking token permissions...")
+        # Decode and display token scopes
+        import jwt
+        token_parts = token.split('.')
+        if len(token_parts) >= 2:
+            # Decode middle part of token (payload)
+            import base64
+            payload = jwt.decode(token, options={"verify_signature": False})
+            st.write("Token scopes:", payload.get('scp', 'No scopes found'))
+            
+        # Test permissions one by one
+        st.write("Testing permissions:")
         
-        # First test basic access
+        # 1. Test basic access
         me_response = requests.get(
             'https://graph.microsoft.com/v1.0/me',
             headers=headers
         )
+        st.write("✓ Basic access:", me_response.status_code == 200)
         
-        if me_response.status_code != 200:
-            st.error("Basic access test failed. Please check if you're logged in correctly.")
-            return False
-            
-        # Test User.Read.All permission
+        # 2. Test User.Read.All
         users_response = requests.get(
             'https://graph.microsoft.com/v1.0/users?$select=id&$top=1',
             headers=headers
         )
+        st.write("✓ User.Read.All:", users_response.status_code == 200)
         
         if users_response.status_code != 200:
-            st.error("""
-            Cannot access user list. 
-            Please ensure User.Read.All permission has admin consent.
-            Error details: {}
-            """.format(users_response.json().get('error', {}).get('message', 'Unknown error')))
+            st.error("Cannot access user list. Error: " + str(users_response.json()))
             return False
             
-        # Test UserAuthenticationMethod.Read.All permission
+        # 3. Test UserAuthenticationMethod.Read.All
         test_user_id = users_response.json()['value'][0]['id']
         auth_methods_response = requests.get(
             f'https://graph.microsoft.com/v1.0/users/{test_user_id}/authentication/methods',
             headers=headers
         )
+        st.write("✓ UserAuthenticationMethod.Read.All:", auth_methods_response.status_code == 200)
         
         if auth_methods_response.status_code != 200:
-            st.error("""
-            Cannot access authentication methods. 
-            Please ensure UserAuthenticationMethod.Read.All permission has admin consent.
-            Error details: {}
-            """.format(auth_methods_response.json().get('error', {}).get('message', 'Unknown error')))
+            error_details = auth_methods_response.json()
+            st.error(f"""
+            Authentication Methods API Error:
+            - Status Code: {auth_methods_response.status_code}
+            - Error: {error_details.get('error', {}).get('code', 'Unknown')}
+            - Message: {error_details.get('error', {}).get('message', 'No message')}
+            
+            To fix this:
+            1. Go to Azure Portal: https://portal.azure.com
+            2. Navigate to Azure Active Directory
+            3. Enterprise Applications
+            4. Search for "Microsoft Graph Explorer" or your custom app
+            5. Select Permissions
+            6. Click "Grant admin consent for [Your Organization]"
+            7. Wait 5 minutes for permissions to propagate
+            8. Get a new token from Graph Explorer
+            """)
             return False
             
         return True
@@ -117,66 +136,50 @@ def render_login():
     """Render the login page"""
     st.title("🔐 MFA Status Report")
     
+    # Add direct link to Azure AD admin consent
+    tenant_id = st.text_input("Enter your Azure AD Tenant ID (optional):", 
+                             help="Found in Azure Portal → Azure Active Directory → Overview")
+    
+    if tenant_id:
+        admin_consent_url = f"https://login.microsoftonline.com/{tenant_id}/adminconsent?client_id=de8bc8b5-d9f9-48b1-a8ad-b748da725064"
+        st.markdown(f"[Click here to grant admin consent directly]({admin_consent_url})")
+    
     st.markdown("""
+    ### Fix Permission Issues:
+    
+    1. **Method 1: Using Azure Portal**
+       1. Go to [Azure Portal](https://portal.azure.com)
+       2. Navigate to Azure Active Directory
+       3. Click on Enterprise Applications
+       4. Search for "Microsoft Graph Explorer"
+       5. Click on Permissions
+       6. Click "Grant admin consent for [Your Organization]"
+       7. Wait 5 minutes
+       8. Get new token from Graph Explorer
+    
+    2. **Method 2: Using Azure AD Admin Center**
+       1. Go to [Azure AD Admin Center](https://aad.portal.azure.com)
+       2. Enterprise Applications
+       3. Microsoft Graph Explorer
+       4. Permissions
+       5. Grant admin consent
+    
+    3. **Method 3: Using PowerShell**
+       ```powershell
+       Connect-AzureAD
+       $sp = Get-AzureADServicePrincipal -Filter "displayName eq 'Microsoft Graph Explorer'"
+       $pending = Get-AzureADServicePrincipalOAuth2PermissionGrant -ObjectId $sp.ObjectId
+       foreach($grant in $pending) {
+           Set-AzureADServicePrincipalOAuth2PermissionGrant -ObjectId $grant.ObjectId -ConsentType "AllPrincipals"
+       }
+       ```
+    
     ### Required Permissions:
-    This application requires the following Microsoft Graph permissions with **admin consent**:
     - User.Read.All
     - UserAuthenticationMethod.Read.All
     
-    ### Get Your Access Token:
-    1. Open [Microsoft Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
-    2. Sign in with your admin account
-    3. Click your profile icon → 'Modify Permissions'
-    4. Add these permissions and ensure they show as "Consented":
-        - User.Read.All
-        - UserAuthenticationMethod.Read.All
-    5. **Important**: If permissions show as "Not Consented":
-        - You need admin rights to consent
-        - Contact your Azure AD admin to grant consent
-        - Or use Azure Portal to grant admin consent
-    6. After permissions are consented, click profile icon → 'Access Token'
-    7. Copy the token and paste below
-    
-    ### Alternative: Get Token via Azure Portal
-    If Graph Explorer isn't working, try Azure Portal:
-    1. Go to [Azure Portal](https://portal.azure.com)
-    2. Navigate to Azure Active Directory
-    3. App Registrations → New Registration
-    4. Create a new app and note the Application ID
-    5. API Permissions → Add Permission
-    6. Add both required permissions
-    7. Click 'Grant admin consent'
-    8. Certificates & Secrets → New Client Secret
-    9. Use these credentials to get a token via POST to:
-       https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
+    Both permissions must show as "Consented" in Graph Explorer.
     """)
-    
-    # Add expandable section for troubleshooting
-    with st.expander("🔍 Troubleshooting Permission Issues"):
-        st.markdown("""
-        1. **Check Admin Rights**
-           - You must be a Global Admin or Privileged Role Admin
-           - Check your role in Azure AD Admin Portal
-        
-        2. **Verify Permission Status**
-           - In Graph Explorer, permissions should show as "Consented"
-           - Green checkmarks should appear next to permissions
-        
-        3. **Grant Admin Consent via Azure Portal**
-           - Go to Azure Portal → Azure Active Directory
-           - Enterprise Applications → Find your app
-           - Permissions → Grant admin consent
-        
-        4. **Token Scope Issues**
-           - Ensure token includes all required scopes
-           - Try getting a new token after consent
-           - Clear browser cache and cookies
-        
-        5. **Common Error Messages**
-           - "Insufficient privileges": Need admin consent
-           - "Invalid scope": Token missing permissions
-           - "Access denied": Role or consent issues
-        """)
     
     token = st.text_input("Access Token:", type="password")
     if st.button("Login"):
@@ -190,14 +193,37 @@ def render_login():
         else:
             st.error("❌ Please check the error messages above and try again.")
 
-    st.markdown("""
-    #### Token Tips:
-    - Must be generated AFTER granting admin consent
-    - Tokens expire after 1 hour
-    - Clear browser cache if issues persist
-    - Ensure you're using an admin account
-    """)
-
+    with st.expander("🔍 Still having issues?"):
+        st.markdown("""
+        1. **Clear Token Cache**
+           - Clear browser cache
+           - Sign out of Graph Explorer
+           - Sign in again
+           - Get new token
+        
+        2. **Verify Admin Role**
+           ```
+           1. Go to Azure Portal
+           2. Azure Active Directory
+           3. Users
+           4. Find your account
+           5. Assigned roles
+           6. Verify you have Global Admin or Authentication Admin
+           ```
+        
+        3. **Check App Registration**
+           - Ensure Microsoft Graph Explorer is registered
+           - Check API permissions are added
+           - Verify admin consent status
+        
+        4. **Wait for Propagation**
+           - After granting consent, wait 5-15 minutes
+           - Azure AD can take time to propagate permissions
+        
+        5. **Contact Support**
+           - If issues persist, contact Azure support
+           - Provide error messages shown above
+        """)
 def check_auth() -> bool:
     """Check if user is authenticated and token is not expired"""
     if 'token' not in st.session_state:
