@@ -32,8 +32,8 @@ def render_login():
         auth = init_auth()
         
         if st.button("Sign in with Microsoft Account", use_container_width=True):
-            with st.spinner("Initializing authentication..."):
-                result = auth.acquire_token_interactive()
+            with st.spinner("Authenticating..."):
+                result = auth.get_token()
                 
                 if result and 'access_token' in result:
                     st.session_state.token = result['access_token']
