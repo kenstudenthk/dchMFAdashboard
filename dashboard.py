@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 import time
+from auth import make_graph_request, check_auth, render_login
 
 # Streamlit config
 st.set_page_config(
@@ -71,37 +72,42 @@ def load_mfa_data():
         st.error(f"Error loading MFA data: {str(e)}")
         return None
 
-def render_login():
-    st.title("🔐 MFA Status Report")
-    
-    st.markdown("""
-    ### Get Your Access Token:
-    1. Go to [Microsoft Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
-    2. Sign in with your Microsoft account
-    3. Click your profile icon
-    4. Select "Access Token"
-    5. Copy the token and paste below
-    """)
-    
-    with st.form("token_form"):
-        token = st.text_input("Access Token:", type="password")
-        submitted = st.form_submit_button("Login")
+def load_mfa_data():
+    """Load MFA status data from Graph API"""
+    try:
+        # Get users with specific properties
+        users_endpoint = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,accountEnabled"
+        users_data = make_graph_request(users_endpoint, st.session_state.token)
         
-        if submitted and token:
-            # Verify token
-            headers = {'Authorization': f'Bearer {token}'}
-            response = requests.get(
-                'https://graph.microsoft.com/v1.0/me',
-                headers=headers
-            )
+        if not users_data:
+            return None
             
-            if response.status_code == 200:
-                st.session_state.token = token
-                st.success("✅ Authentication successful!")
-                st.rerun()
-            else:
-                st.error("❌ Invalid token. Please try again.")
-
+        users = users_data.get('value', [])
+        
+        # Get authentication methods for each user
+        mfa_data = []
+        with st.progress(0) as progress:
+            for i, user in enumerate(users):
+                auth_methods_endpoint = f"https://graph.microsoft.com/v1.0/users/{user['id']}/authentication/methods"
+                auth_methods = make_graph_request(auth_methods_endpoint, st.session_state.token)
+                
+                if auth_methods:
+                    methods = auth_methods.get('value', [])
+                    mfa_data.append({
+                        'Display Name': user['displayName'],
+                        'Email': user['userPrincipalName'],
+                        'Account Enabled': user['accountEnabled'],
+                        'MFA Methods': [m.get('method', '') for m in methods],
+                        'MFA Enabled': len(methods) > 0
+                    })
+                
+                progress.progress((i + 1) / len(users))
+                
+        return pd.DataFrame(mfa_data)
+        
+    except Exception as e:
+        st.error(f"Error loading MFA data: {str(e)}")
+        return None
 def render_dashboard():
     st.title("🔐 MFA Status Report")
     
