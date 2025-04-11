@@ -192,3 +192,25 @@ def render_login():
     - User.Read.All
     - UserAuthenticationMethod.Read.All
     """)
+def check_auth() -> bool:
+    """Check if user is authenticated and token is not expired"""
+    if 'token' not in st.session_state:
+        return False
+        
+    if not st.session_state.token:
+        return False
+        
+    if 'token_timestamp' in st.session_state:
+        token_age = datetime.now() - st.session_state.token_timestamp
+        if token_age > timedelta(hours=1):
+            st.warning("🔄 Token has expired. Please login again.")
+            logout(show_message=False)
+            return False
+            
+    return True
+
+def logout(show_message: bool = True):
+    """Clear the session state to logout"""
+    st.session_state.clear()
+    if show_message:
+        st.success("👋 Logged out successfully!")
