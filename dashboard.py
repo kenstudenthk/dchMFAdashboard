@@ -8,6 +8,8 @@ import pandas as pd
 import plotly.express as px
 from collections import Counter
 
+# Dashboard Functions
+TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  # Replace with your tenant ID
 # Authentication Functions
 def make_graph_request(endpoint: str, token: str) -> dict:
     """Make a request to Microsoft Graph API with error handling"""
@@ -58,8 +60,7 @@ def logout():
     st.session_state.clear()
     st.success("👋 Logged out successfully!")
 
-# Dashboard Functions
-TENANT_ID = "your_tenant_id"  # Replace with your tenant ID
+
 
 def get_device_code():
     """Get device code using tenant ID"""
