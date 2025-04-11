@@ -65,20 +65,34 @@ def logout():
 def get_device_code():
     """Get device code using tenant ID"""
     try:
-        response = requests.post(
-            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/device_code',  # Changed to v1.0 endpoint
-            data={
-                'resource': 'https://graph.microsoft.com'  # Changed from scope to resource
-            }
-        )
+        url = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/devicecode'
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        data = {
+            'resource': 'https://graph.microsoft.com'
+        }
+        
+        # Print request details for debugging
+        st.write("Request URL:", url)
+        st.write("Request Data:", data)
+        
+        response = requests.post(url, headers=headers, data=data)
+        
+        # Print response details
+        st.write("Response Status Code:", response.status_code)
+        st.write("Response Headers:", dict(response.headers))
+        st.write("Response Text:", response.text)
         
         if response.status_code == 200:
             return response.json()
-        st.error(f"Error response: {response.text}")
+        else:
+            st.error(f"Error Status Code: {response.status_code}")
+            st.error(f"Error Response: {response.text}")
         return None
             
     except Exception as e:
-        st.error(f"Error: {str(e)}")
+        st.error(f"Exception occurred: {str(e)}")
         return None
 
 def poll_for_token(device_code):
