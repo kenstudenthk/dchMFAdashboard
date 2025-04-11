@@ -1,6 +1,6 @@
 # auth.py
-import msal
 import streamlit as st
+import msal
 from save_state import CLIENT_ID, TENANT_ID, SCOPES
 import time
 
