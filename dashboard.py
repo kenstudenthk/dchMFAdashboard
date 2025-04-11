@@ -32,19 +32,31 @@ def render_login():
         auth = init_auth()
         
         if st.button("Sign in with Microsoft Account", use_container_width=True):
-            with st.spinner("Authenticating..."):
-                result = auth.get_token()
+            with st.spinner("Initializing authentication..."):
+                # Get device flow
+                flow = auth.get_device_flow()
                 
-                if result and 'access_token' in result:
-                    st.session_state.token = result['access_token']
-                    st.session_state.authenticated = True
-                    st.success("✅ Successfully authenticated!")
-                    time.sleep(1)
-                    st.rerun()
+                if flow and 'user_code' in flow:
+                    # Display instructions to user
+                    st.code(flow['message'])
+                    st.markdown("👆 Please follow the instructions above to sign in")
+                    
+                    # Wait for authentication
+                    with st.spinner("Waiting for authentication..."):
+                        result = auth.acquire_token_by_device_flow(flow)
+                        
+                        if result and 'access_token' in result:
+                            st.session_state.token = result['access_token']
+                            st.session_state.authenticated = True
+                            st.success("✅ Successfully authenticated!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ Authentication failed. Please try again.")
+                            if result and 'error' in result:
+                                st.error(f"Error: {result.get('error_description', 'Unknown error')}")
                 else:
-                    st.error("❌ Authentication failed. Please try again.")
-                    if result and 'error' in result:
-                        st.error(f"Error: {result.get('error_description', 'Unknown error')}")
+                    st.error("Failed to initialize authentication flow")
     
     except Exception as e:
         st.error("Authentication Error")

@@ -4,7 +4,6 @@ from typing import List
 
 # Azure AD Configuration
 CLIENT_ID = "b3eee569-7d4b-4976-9af4-9f683063448f"
-
 TENANT_ID = "common"
 
 
