@@ -16,16 +16,22 @@ class GraphAuth:
             authority=self.authority
         )
 
-    def initiate_device_flow(self):
-        """Initiate the device code flow for authentication"""
-        flow = self.app.initiate_device_flow(scopes=SCOPES)
-        if "user_code" not in flow:
-            raise ValueError("Failed to create device flow")
-        return flow
+    def get_auth_url(self):
+        """Get authorization URL"""
+        auth_url = self.app.get_authorization_request_url(
+            scopes=SCOPES,
+            redirect_uri="http://localhost:8501/",  # Streamlit default port
+            state=st.session_state.get("state", "state123")
+        )
+        return auth_url
 
-    def acquire_token_by_device_flow(self, flow):
-        """Complete the device code flow and acquire token"""
-        result = self.app.acquire_token_by_device_flow(flow)
+    def acquire_token_by_auth_code(self, auth_code):
+        """Acquire token using authorization code"""
+        result = self.app.acquire_token_by_authorization_code(
+            code=auth_code,
+            scopes=SCOPES,
+            redirect_uri="http://localhost:8501/"
+        )
         return result
 
     def acquire_token_silent(self):
@@ -36,12 +42,15 @@ class GraphAuth:
             return result
         return None
 
+    def get_token_on_behalf_of(self):
+        """Get access token using client credentials flow"""
+        result = self.app.acquire_token_for_client(scopes=SCOPES)
+        return result
+
 def init_auth():
     """Initialize authentication"""
     return GraphAuth()
 
 def check_auth():
     """Check if user is authenticated"""
-    if 'token' not in st.session_state:
-        return False
-    return True
+    return st.session_state.get('authenticated', False)
