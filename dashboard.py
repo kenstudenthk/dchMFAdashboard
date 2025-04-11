@@ -9,7 +9,8 @@ import plotly.express as px
 from collections import Counter
 
 # Dashboard Functions
-TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  # Replace with your tenant ID
+TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  
+CLIENT_ID = "1b730954-1685-4b74-9bfd-dac224a7b894"
 # Authentication Functions
 def make_graph_request(endpoint: str, token: str) -> dict:
     """Make a request to Microsoft Graph API with error handling"""
@@ -65,45 +66,33 @@ def logout():
 def get_device_code():
     """Get device code using tenant ID"""
     try:
-        url = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/devicecode'
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-        data = {
-            'resource': 'https://graph.microsoft.com'
-        }
-        
-        # Print request details for debugging
-        st.write("Request URL:", url)
-        st.write("Request Data:", data)
-        
-        response = requests.post(url, headers=headers, data=data)
-        
-        # Print response details
-        st.write("Response Status Code:", response.status_code)
-        st.write("Response Headers:", dict(response.headers))
-        st.write("Response Text:", response.text)
+        response = requests.post(
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/devicecode',
+            data={
+                'client_id': CLIENT_ID,  # Added this
+                'resource': 'https://graph.microsoft.com'
+            }
+        )
         
         if response.status_code == 200:
             return response.json()
-        else:
-            st.error(f"Error Status Code: {response.status_code}")
-            st.error(f"Error Response: {response.text}")
+        st.error(f"Error response: {response.text}")
         return None
             
     except Exception as e:
-        st.error(f"Exception occurred: {str(e)}")
+        st.error(f"Error: {str(e)}")
         return None
 
 def poll_for_token(device_code):
     """Poll for token after user logs in"""
     try:
         response = requests.post(
-            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/token',  # Changed to v1.0 endpoint
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/token',
             data={
                 'grant_type': 'device_code',
-                'code': device_code,  # Changed from device_code to code
-                'resource': 'https://graph.microsoft.com'  # Added resource
+                'client_id': CLIENT_ID,  # Added this
+                'code': device_code,
+                'resource': 'https://graph.microsoft.com'
             }
         )
         
@@ -114,7 +103,6 @@ def poll_for_token(device_code):
     except Exception as e:
         st.error(f"Error: {str(e)}")
         return None
-
 def check_token_valid():
     if 'token' not in st.session_state:
         return False
