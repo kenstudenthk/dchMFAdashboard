@@ -1,34 +1,19 @@
-import json
+# config.py
 import os
-from typing import Dict, Any
+from typing import List
 
-class StateManager:
-    def __init__(self, state_file: str = '.streamlit/process_state.json'):
-        self.state_file = state_file
-        os.makedirs(os.path.dirname(state_file), exist_ok=True)
-    
-    def save_state(self, state: Dict[str, Any]) -> None:
-        """Save current processing state"""
-        try:
-            with open(self.state_file, 'w') as f:
-                json.dump(state, f)
-        except Exception as e:
-            print(f"Error saving state: {e}")
+# Azure AD Configuration
+CLIENT_ID = "b3eee569-7d4b-4976-9af4-9f683063448f"
+CLIENT_SECRET = "oVL8Q~5Xe4y~86pIBYPBOUi7swmIsRpnj75aAcGy"
+TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"
 
-    def load_state(self) -> Dict[str, Any]:
-        """Load saved processing state"""
-        try:
-            if os.path.exists(self.state_file):
-                with open(self.state_file, 'r') as f:
-                    return json.load(f)
-        except Exception as e:
-            print(f"Error loading state: {e}")
-        return {}
+# Required Microsoft Graph API Scopes
+SCOPES: List[str] = [
+    'User.Read.All',
+    'Group.ReadWrite.All',
+    'UserAuthenticationMethod.ReadWrite.All',
+    'AuditLog.Read.All'
+]
 
-    def clear_state(self) -> None:
-        """Clear saved state"""
-        try:
-            if os.path.exists(self.state_file):
-                os.remove(self.state_file)
-        except Exception as e:
-            print(f"Error clearing state: {e}")
+# Graph API endpoints
+GRAPH_API_ENDPOINT = "https://graph.microsoft.com/beta"
