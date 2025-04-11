@@ -105,39 +105,38 @@ class UserAnalyzer:
                 st.session_state[key] = default_value
 
     def render_data_collection_tab(self):
-        """Render the Data Collection tab"""
         st.header("📊 Data Collection")
         st.markdown("---")
-        
+    
+        state_manager = StateManager()
+        saved_state = state_manager.load_state()
+    
         col1, col2, col3, col4, col5 = st.columns([2, 2, 1, 1, 1])
-        
+    
         with col1:
             if st.button("🔍 Process Users", key="process_users", use_container_width=True):
+                st.session_state.force_restart = True
                 self.process_users(st.session_state.num_users)
-        
+    
         with col2:
             if st.button("👥 Process All Users", key="process_all_users", use_container_width=True):
+                st.session_state.force_restart = True
                 self.process_users_in_batches(total_users=5000, batch_size=500)
-        
+    
         with col3:
-            # Add Resume button
-            try:
-                with open('.streamlit/progress.json', 'r') as f:
-                    progress_exists = True
-            except FileNotFoundError:
-                progress_exists = False
-                
-            if progress_exists:
+            if saved_state:
                 if st.button("▶️ Resume", key="resume_processing", use_container_width=True):
+                    st.session_state.force_restart = False
                     self.process_users_in_batches(total_users=5000, batch_size=500)
-        
+    
         with col4:
-            if st.button("Logout", key="logout_button", use_container_width=True):
-                self.handle_logout()
-        
-        with col5:
             if st.button("❌ Cancel", key="cancel_processing", use_container_width=True):
                 self.cancel_processing()
+    
+        with col5:
+            if st.button("🗑️ Clear", key="clear_state", use_container_width=True):
+                state_manager.clear_state()
+                st.rerun()
 
         # Add a number input for custom user count
         st.number_input(
@@ -155,42 +154,38 @@ class UserAnalyzer:
 
     def process_users_in_batches(self, total_users: int, batch_size: int = 500):
         """Process users in batches with save/resume functionality"""
+        state_manager = StateManager()
+    
         try:
-            with st.spinner('Initializing batch processing...'):
-            # Initialize or restore progress
-                if not st.session_state.get('processing'):
-                    # New processing session
-                    st.session_state.processing = True
-                    st.session_state.job_running = True
-                    st.session_state.progress = 0
-                    st.session_state.current_batch = 0
-                    st.session_state.processed_df = pd.DataFrame()
-                
-                # Try to load previous progress
-                try:
-                    with open('.streamlit/progress.json', 'r') as f:
-                        saved_progress = json.load(f)
-                        resume_from = saved_progress.get('current_batch', 0) * batch_size
-                        st.info(f"Resuming from user {resume_from}")
-                except FileNotFoundError:
-                    resume_from = 0
-                else:
-                    resume_from = st.session_state.current_batch * batch_size
+          # Initialize or restore progress
+            saved_state = state_manager.load_state()
+        
+            if saved_state and not st.session_state.get('force_restart'):
+                # Restore state
+                st.session_state.current_batch = saved_state.get('current_batch', 0)
+                st.session_state.progress = saved_state.get('progress', 0)
+                st.session_state.processed_df = pd.DataFrame(saved_state.get('processed_data', []))
+                resume_from = st.session_state.current_batch * batch_size
+                st.info(f"Resuming from batch {st.session_state.current_batch} (user {resume_from})")
+            else:
+                # New processing session
+                st.session_state.current_batch = 0
+                st.session_state.progress = 0
+                st.session_state.processed_df = pd.DataFrame()
+                resume_from = 0
 
             # Create status containers
             status_container = st.empty()
             progress_container = st.container()
-            data_container = st.container()
-            
+        
             with progress_container:
-                progress_bar = st.progress(0)
+                progress_bar = st.progress(st.session_state.progress)
                 progress_text = st.empty()
                 batch_progress = st.empty()
 
             # Calculate number of batches
             num_batches = (total_users + batch_size - 1) // batch_size
-            with status_container:
-                st.info("Processing users in batches...")
+        
             # Process batches
             for batch_num in range(st.session_state.current_batch, num_batches):
                 if not st.session_state.job_running:
@@ -203,6 +198,7 @@ class UserAnalyzer:
                     # Update progress displays
                     progress_text.text(f"Processing batch {batch_num + 1} of {num_batches}")
                     batch_progress.text(f"Users processed: {start_idx} to {min(start_idx + batch_size, total_users)}")
+                
                     # Process current batch
                     batch_df = get_mfa_status(
                         token=st.session_state.token,
@@ -223,27 +219,22 @@ class UserAnalyzer:
                         # Update progress
                         st.session_state.current_batch = batch_num + 1
                         st.session_state.progress = min((batch_num + 1) / num_batches, 1.0)
-                        
-                        # Update UI
                         progress_bar.progress(st.session_state.progress)
-                        
-                        # Show current data
-                        with data_container:
-                            st.write(f"Processed {len(st.session_state.processed_df)} users so far")
-                            if len(st.session_state.processed_df) > 0:
-                                st.dataframe(st.session_state.processed_df.tail())
 
-                        # Save progress every batch
-                        self.save_progress()
+                        # Save state after each batch
+                        state_manager.save_state({
+                            'current_batch': st.session_state.current_batch,
+                            'progress': st.session_state.progress,
+                            'processed_data': st.session_state.processed_df.to_dict('records'),
+                            'timestamp': datetime.now().isoformat()
+                        })
 
-                        # Add delay to prevent API throttling
-                        time.sleep(1)
+                    time.sleep(1)  # Prevent API throttling
 
                 except Exception as e:
                     with status_container:
                         st.error(f"Error processing batch {batch_num}: {str(e)}")
-                    # Save progress before stopping
-                    self.save_progress()
+                    # State is already saved, so we can safely break
                     break
 
             # Processing complete
@@ -251,11 +242,7 @@ class UserAnalyzer:
                 with status_container:
                     st.success("✅ Processing complete!")
                 self.offer_download(st.session_state.processed_df)
-                # Clear progress file
-                try:
-                    os.remove('.streamlit/progress.json')
-                except:
-                    pass
+                state_manager.clear_state()  # Clear saved state after successful completion
 
         except Exception as e:
             st.error(f"Error during batch processing: {str(e)}")
