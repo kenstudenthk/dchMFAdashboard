@@ -145,23 +145,23 @@ def render_login():
                 """)
 
                 with st.spinner("Waiting for login completion..."):
-                    interval = device_code_response.get('interval', 5)
-                    expires_in = device_code_response.get('expires_in', 900)
+                    interval = int(device_code_response.get('interval', 5))  # Convert to int
+                    expires_in = int(device_code_response.get('expires_in', 900))  # Convert to int
                     start_time = time.time()
                     
                     while time.time() - start_time < expires_in:
                         token_response = poll_for_token(st.session_state.device_code)
                         if token_response:
                             st.session_state.token = token_response['access_token']
-                            expires_in = token_response['expires_in']
-                            st.session_state.token_expiry = datetime.now(timezone.utc).timestamp() + expires_in
+                            expires_in = int(token_response['expires_in'])  # Convert to int
+                            st.session_state.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)  # Changed this line
                             st.success("Successfully logged in!")
                             st.rerun()
                             break
                         time.sleep(interval)
             else:
                 st.error("Failed to get authentication code. Please try again.")
-
+                
 def render_dashboard():
     st.title("📊 Microsoft Graph Dashboard")
     st.write("Welcome! You're successfully logged in.")
