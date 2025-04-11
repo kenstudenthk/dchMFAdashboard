@@ -119,7 +119,7 @@ def get_user_data(token):
         # Test the token first
         st.write("Testing API connection...")
         test_response = requests.get(
-            'https://graph.microsoft.com/v1.0/users',  # Changed from /me to /users for testing
+            'https://graph.microsoft.com/v1.0/users?$top=1',
             headers=headers
         )
         if test_response.status_code != 200:
@@ -127,26 +127,33 @@ def get_user_data(token):
             st.error(f"Error message: {test_response.text}")
             return None
 
-        # Get all users
+        # Get all users with pagination
         st.write("Fetching users...")
-        response = requests.get(
-            'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled',
-            headers=headers
-        )
+        next_link = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
+        all_users = []
         
-        if response.status_code != 200:
-            st.error(f"Failed to fetch users. Status code: {response.status_code}")
-            st.error(f"Error message: {response.text}")
-            return None
+        while next_link:
+            response = requests.get(next_link, headers=headers)
+            
+            if response.status_code != 200:
+                st.error(f"Failed to fetch users. Status code: {response.status_code}")
+                st.error(f"Error message: {response.text}")
+                return None
 
-        users = response.json().get('value', [])
-        st.write(f"Found {len(users)} total users")
+            data = response.json()
+            all_users.extend(data.get('value', []))
+            next_link = data.get('@odata.nextLink')  # Get the next page link
+            
+            st.write(f"Fetched {len(all_users)} users so far...")
+
+        st.write(f"Found {len(all_users)} total users")
         
         progress_bar = st.progress(0)
         progress_text = st.empty()
         
-        for i, user in enumerate(users):
-            progress_text.write(f"Processing user {i+1} of {len(users)}: {user.get('displayName', 'Unknown')}")
+        # Process all users
+        for i, user in enumerate(all_users):
+            progress_text.write(f"Processing user {i+1} of {len(all_users)}: {user.get('displayName', 'Unknown')}")
             
             if not user.get('accountEnabled', False):
                 continue
@@ -156,7 +163,7 @@ def get_user_data(token):
             # Get MFA status
             progress_text.write(f"Checking MFA status for {user.get('displayName', 'Unknown')}...")
             mfa_response = requests.get(
-                f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',  # Updated MFA check endpoint
+                f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
                 headers=headers
             )
             
@@ -201,7 +208,7 @@ def get_user_data(token):
                     'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never')
                 })
             
-            progress_bar.progress((i + 1) / len(users))
+            progress_bar.progress((i + 1) / len(all_users))
         
         progress_bar.empty()
         progress_text.empty()
@@ -210,7 +217,13 @@ def get_user_data(token):
             st.warning("No users found matching the criteria (E1/E3 license with MFA disabled)")
             return None
             
-        return pd.DataFrame(users_data)
+        df = pd.DataFrame(users_data)
+        
+        # Convert datetime strings to more readable format
+        df['Creation Date'] = pd.to_datetime(df['Creation Date']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df['Last Interactive SignIn'] = pd.to_datetime(df['Last Interactive SignIn']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        
+        return df
         
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
