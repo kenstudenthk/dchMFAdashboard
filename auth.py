@@ -17,8 +17,14 @@ class GraphAuth:
     def get_device_flow(self):
         """Start device code flow authentication"""
         try:
-            # Use only the Graph API scopes
-            flow = self.app.initiate_device_flow(scopes=SCOPES)
+            # Convert scope strings to proper format
+            formatted_scopes = [
+                scope if scope.startswith('https://') 
+                else f'https://graph.microsoft.com/{scope}'
+                for scope in SCOPES
+            ]
+            
+            flow = self.app.initiate_device_flow(scopes=formatted_scopes)
             
             if "user_code" not in flow:
                 error_msg = flow.get('error_description', 'Unknown error in device flow')
