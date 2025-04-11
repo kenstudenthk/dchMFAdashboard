@@ -8,16 +8,27 @@ import pandas as pd
 import plotly.express as px
 from collections import Counter
 
-# Very basic page config with minimal session state
-st.set_page_config(page_title="Microsoft Graph User Report")
+# Configure Streamlit
+st.set_page_config(
+    page_title="Microsoft Graph User Report",
+    layout="wide"
+)
 
-# Initialize only essential session state variables
-if "token" not in st.session_state:
+# Initialize session state
+if 'token' not in st.session_state:
     st.session_state.token = None
-# Constants
-TENANT_ID = "your_tenant_id"
-CLIENT_ID = "1b730954-1685-4b74-9bfd-dac224a7b894"
+if 'data' not in st.session_state:
+    st.session_state.data = []
+if 'processing' not in st.session_state:
+    st.session_state.processing = False
+if 'processed_count' not in st.session_state:
+    st.session_state.processed_count = 0
 
+# Increase server timeout (in seconds)
+if not st.session_state.get('initialized'):
+    st.cache_data.clear()
+    st.session_state.initialized = True
+    
 # Disable automatic refresh
 st.cache_resource(ttl=3600)  # Cache resources for 1 hour
 
@@ -165,53 +176,6 @@ def process_users_batch(token, users_batch):
     
     return batch_data
 
-def get_all_users(token):
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-    
-    st.session_state['data'] = []
-    st.session_state['processed_count'] = 0
-    
-    # Test connection
-    test_response = requests.get(
-        'https://graph.microsoft.com/v1.0/users?$top=1',
-        headers=headers
-    )
-    if test_response.status_code != 200:
-        st.error("Failed to connect to Microsoft Graph API")
-        return None
-
-    next_link = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
-    
-    with st.empty():
-        while next_link:
-            response = requests.get(next_link, headers=headers)
-            if response.status_code != 200:
-                st.error("Failed to fetch users")
-                return None
-
-            data = response.json()
-            users_batch = data.get('value', [])
-            
-            # Process batch
-            batch_results = process_users_batch(token, users_batch)
-            if batch_results:
-                st.session_state['data'].extend(batch_results)
-                st.session_state['processed_count'] += len(batch_results)
-                
-                # Update progress
-                st.write(f"Processed {st.session_state['processed_count']} users...")
-                
-                # Show current results
-                if len(st.session_state['data']) > 0:
-                    display_results(pd.DataFrame(st.session_state['data']))
-            
-            next_link = data.get('@odata.nextLink')
-    
-    return pd.DataFrame(st.session_state['data']) if st.session_state['data'] else None
-
 def display_results(df):
     if df is not None and not df.empty:
         st.write(f"Total users found: {len(df)}")
@@ -227,117 +191,209 @@ def display_results(df):
                 df.to_csv("user_report.csv", index=False)
                 st.success("Exported to CSV!")
 
-def main():
-    st.title("Microsoft Graph User Report")
+def get_all_user_data(token):
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
     
-    # Login Section
-    if not st.session_state['token']:
-        if st.button("Login to Microsoft"):
-            device_code_response = get_device_code()
-            if device_code_response:
-                st.markdown("""
-                ### Please follow these steps:
-                1. Go to: https://microsoft.com/devicelogin
-                2. Enter this code:
-                """)
-                st.code(device_code_response['user_code'])
-                
-                with st.spinner("Waiting for authentication..."):
-                    interval = int(device_code_response.get('interval', 5))
-                    expires_in = int(device_code_response.get('expires_in', 900))
-                    start_time = time.time()
-                    
-                    while time.time() - start_time < expires_in:
-                        token_response = poll_for_token(device_code_response['device_code'])
-                        if token_response:
-                            st.session_state['token'] = token_response['access_token']
-                            st.success("Successfully logged in!")
-                            time.sleep(1)
-                            st.rerun()
-                            break
-                        time.sleep(interval)
+    users_data = []
+    progress_placeholder = st.empty()
+    table_placeholder = st.empty()
     
-    # Data Section
-    else:
-        st.write("Currently logged in")
+    try:
+        # Test the token
+        test_response = requests.get(
+            'https://graph.microsoft.com/v1.0/users?$top=1',
+            headers=headers
+        )
+        if test_response.status_code != 200:
+            st.error(f"API test failed. Status code: {test_response.status_code}")
+            return None
+
+        # Get all users with pagination
+        next_link = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
+        total_processed = 0
         
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Get User Report"):
-                df = get_all_users(st.session_state['token'])
-        with col2:
-            if st.button("Logout"):
-                st.session_state.clear()
-                st.rerun()
-                
-def check_token_valid():
-    if 'token' not in st.session_state:
-        return False
-    if 'token_expiry' not in st.session_state:
-        return False
-    
-    now = datetime.now(timezone.utc)
-    if now >= st.session_state.token_expiry:
-        return False
-    
-    return True
+        while next_link:
+            response = requests.get(next_link, headers=headers)
+            if response.status_code != 200:
+                st.error("Failed to fetch users")
+                return None
 
-def render_login():
-    st.title("🔐 Device Login")
-
-    if st.button("Get Authentication Code", type="primary"):
-        with st.spinner("Getting authentication code..."):
-            device_code_response = get_device_code()
+            current_users = response.json().get('value', [])
+            progress_placeholder.write(f"Processing batch of {len(current_users)} users...")
             
-            if device_code_response:
-                st.session_state.user_code = device_code_response['user_code']
-                st.session_state.device_code = device_code_response['device_code']
+            for user in current_users:
+                user_id = user['id']
                 
-                st.markdown("""
-                ### Steps to Sign In:
+                # Get MFA status
+                mfa_response = requests.get(
+                    f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
+                    headers=headers
+                )
                 
-                1. Click this button to open Microsoft login:
-                """)
+                # Get license details
+                license_response = requests.get(
+                    f'https://graph.microsoft.com/v1.0/users/{user_id}/licenseDetails',
+                    headers=headers
+                )
                 
-                st.link_button("🌐 Open Microsoft Device Login", "https://microsoft.com/devicelogin", type="primary")
+                # Process licenses
+                licenses = []
+                if license_response.status_code == 200:
+                    for license in license_response.json().get('value', []):
+                        sku = license.get('skuPartNumber', '')
+                        licenses.append(sku)
                 
-                st.markdown("""
-                2. Copy this authentication code:
-                """)
+                # Process MFA status
+                mfa_status = 'Unknown'
+                if mfa_response.status_code == 200:
+                    mfa_data = mfa_response.json()
+                    mfa_status = 'Disabled' if not bool(mfa_data) else 'Enabled'
                 
-                st.code(st.session_state.user_code, language=None)
+                # Compile user data
+                users_data.append({
+                    'Name': user.get('displayName', ''),
+                    'UserPrincipalName': user.get('userPrincipalName', ''),
+                    'Mail': user.get('mail', ''),
+                    'Account Status': 'Active' if user.get('accountEnabled', False) else 'Disabled',
+                    'MFA Status': mfa_status,
+                    'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
+                    'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never'),
+                    'Creation Date': user.get('createdDateTime', '')
+                })
                 
-                st.markdown("""
-                3. Paste the code and sign in with your Microsoft account
-                """)
+                total_processed += 1
+                if total_processed % 50 == 0:
+                    progress_placeholder.write(f"Processed {total_processed} users...")
+                    if users_data:
+                        df = pd.DataFrame(users_data)
+                        table_placeholder.dataframe(df)
+            
+            next_link = response.json().get('@odata.nextLink')
+        
+        progress_placeholder.empty()
+        
+        if not users_data:
+            st.warning("No users found")
+            return None
+        
+        df = pd.DataFrame(users_data)
+        # Convert datetime columns
+        df['Creation Date'] = pd.to_datetime(df['Creation Date']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df['Last Interactive SignIn'] = pd.to_datetime(df['Last Interactive SignIn']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        return df
+        
+    except Exception as e:
+        st.error(f"Error fetching data: {str(e)}")
+        return None
 
-                with st.spinner("Waiting for login completion..."):
-                    interval = int(device_code_response.get('interval', 5))
-                    expires_in = int(device_code_response.get('expires_in', 900))
-                    start_time = time.time()
-                    
-                    while time.time() - start_time < expires_in:
-                        token_response = poll_for_token(st.session_state.device_code)
-                        if token_response:
-                            st.session_state.token = token_response['access_token']
-                            expires_in = int(token_response['expires_in'])
-                            st.session_state.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-                            st.success("Successfully logged in!")
-                            st.rerun()
-                            break
-                        time.sleep(interval)
-            else:
-                st.error("Failed to get authentication code. Please try again.")
-                
-
-def render_dashboard():
-    st.title("📊 Microsoft Graph Dashboard")
-    st.write("Welcome! You're successfully logged in.")
+def filter_data(df):
+    st.write("### Filter Users")
+    col1, col2, col3 = st.columns(3)
     
-    if st.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
+    with col1:
+        account_status = st.multiselect(
+            "Account Status",
+            options=['Active', 'Disabled'],
+            default=['Active', 'Disabled']
+        )
+    
+    with col2:
+        mfa_status = st.multiselect(
+            "MFA Status",
+            options=['Enabled', 'Disabled', 'Unknown'],
+            default=['Enabled', 'Disabled', 'Unknown']
+        )
+    
+    with col3:
+        license_filter = st.text_input(
+            "License Contains (e.g., E3, E1)",
+            ""
+        )
+    
+    # Apply filters
+    filtered_df = df[
+        (df['Account Status'].isin(account_status)) &
+        (df['MFA Status'].isin(mfa_status))
+    ]
+    
+    if license_filter:
+        filtered_df = filtered_df[filtered_df['Assigned Licenses'].str.contains(license_filter, case=False, na=False)]
+    
+    return filtered_df
+
+# Main app
+st.title("Microsoft Graph User Report")
+
+if not st.session_state.token:
+    if st.button("Login to Microsoft"):
+        device_code_response = get_device_code()
+        if device_code_response:
+            st.markdown("""
+            ### Please follow these steps:
+            1. Go to: https://microsoft.com/devicelogin
+            2. Enter this code:
+            """)
+            st.code(device_code_response['user_code'])
+            
+            with st.spinner("Waiting for authentication..."):
+                interval = int(device_code_response.get('interval', 5))
+                expires_in = int(device_code_response.get('expires_in', 900))
+                start_time = time.time()
+                
+                while time.time() - start_time < expires_in:
+                    token_response = poll_for_token(device_code_response['device_code'])
+                    if token_response:
+                        st.session_state.token = token_response['access_token']
+                        st.success("Successfully logged in!")
+                        st.rerun()
+                        break
+                    time.sleep(interval)
+else:
+    st.write("Currently logged in")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Get All Users"):
+            df = get_all_user_data(st.session_state.token)
+            if df is not None:
+                st.write("### All Users Report")
+                st.write(f"Total Users: {len(df)}")
+                st.dataframe(df)
+                
+                # Show filtered report
+                st.write("### Filtered Report")
+                filtered_df = filter_data(df)
+                st.write(f"Filtered Users: {len(filtered_df)}")
+                st.dataframe(filtered_df)
+                
+                # Export options
+                st.write("### Export Options")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    if st.button("Export All Users (Excel)"):
+                        df.to_excel("all_users_report.xlsx", index=False)
+                        st.success("Exported all users to Excel!")
+                with col2:
+                    if st.button("Export All Users (CSV)"):
+                        df.to_csv("all_users_report.csv", index=False)
+                        st.success("Exported all users to CSV!")
+                with col3:
+                    if st.button("Export Filtered Users (Excel)"):
+                        filtered_df.to_excel("filtered_users_report.xlsx", index=False)
+                        st.success("Exported filtered users to Excel!")
+                with col4:
+                    if st.button("Export Filtered Users (CSV)"):
+                        filtered_df.to_csv("filtered_users_report.csv", index=False)
+                        st.success("Exported filtered users to CSV!")
+    
+    with col2:
+        if st.button("Logout"):
+            st.session_state.token = None
+            st.rerun()
 
 if __name__ == "__main__":
     main()
