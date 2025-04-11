@@ -22,34 +22,50 @@ def load_mfa_data():
             return None
             
         users = users_data.get('value', [])
+        if not users:
+            st.warning("No users found in the directory.")
+            return None
+            
         total_users = len(users)
-        
         mfa_data = []
-        with st.progress(0) as progress:
-            for i, user in enumerate(users):
-                try:
-                    auth_methods_endpoint = f"https://graph.microsoft.com/v1.0/users/{user['id']}/authentication/methods"
-                    auth_methods = make_graph_request(auth_methods_endpoint, st.session_state.token)
-                    
-                    methods = []
-                    has_mfa = False
-                    
-                    if auth_methods and 'value' in auth_methods:
-                        methods = [m.get('method', '') for m in auth_methods['value']]
-                        has_mfa = any(m for m in methods if m not in ['password', ''])
-                    
-                    mfa_data.append({
-                        'DisplayName': user['displayName'],
-                        'Email': user['userPrincipalName'],
-                        'AccountEnabled': user['accountEnabled'],
-                        'MFAEnabled': has_mfa,
-                        'AuthMethods': ', '.join(m for m in methods if m)
-                    })
-                except Exception as e:
-                    st.error(f"Error processing user {user['displayName']}: {str(e)}")
-                
-                progress.progress((i + 1) / total_users)
         
+        progress_text = "Loading user data..."
+        progress_bar = st.progress(0, text=progress_text)
+        
+        for i, user in enumerate(users):
+            try:
+                auth_methods_endpoint = f"https://graph.microsoft.com/v1.0/users/{user['id']}/authentication/methods"
+                auth_methods = make_graph_request(auth_methods_endpoint, st.session_state.token)
+                
+                if auth_methods is None:
+                    continue
+                    
+                methods = []
+                has_mfa = False
+                
+                if 'value' in auth_methods:
+                    methods = [m.get('method', '') for m in auth_methods['value']]
+                    has_mfa = any(m for m in methods if m not in ['password', ''])
+                
+                mfa_data.append({
+                    'DisplayName': user['displayName'],
+                    'Email': user['userPrincipalName'],
+                    'AccountEnabled': user['accountEnabled'],
+                    'MFAEnabled': has_mfa,
+                    'AuthMethods': ', '.join(m for m in methods if m)
+                })
+                
+                # Update progress
+                progress = (i + 1) / total_users
+                progress_bar.progress(progress, text=f"{progress_text} ({i + 1}/{total_users})")
+                
+            except Exception as e:
+                st.error(f"Error processing user {user['displayName']}: {str(e)}")
+        
+        if not mfa_data:
+            st.warning("No user data could be loaded.")
+            return None
+            
         return pd.DataFrame(mfa_data)
         
     except Exception as e:
