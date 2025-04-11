@@ -111,17 +111,13 @@ def get_device_code():
             'scope': 'https://graph.microsoft.com/User.Read.All https://graph.microsoft.com/UserAuthenticationMethod.Read.All'
         }
         
-        # Show loading message
-        with st.spinner("Getting authentication code..."):
-            response = requests.post(
-                'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
-                data=payload
-            )
+        response = requests.post(
+            'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
+            data=payload
+        )
         
         if response.status_code == 200:
             return response.json()
-        else:
-            st.error(f"Error: {response.text}")
         return None
             
     except Exception as e:
@@ -147,101 +143,36 @@ def poll_for_token(device_code):
     return None
 
 def render_login():
-    """Render simplified login page"""
-    st.title("🔐 MFA Status Report")
-    
-    # Initialize session state
-    if 'show_code' not in st.session_state:
-        st.session_state.show_code = False
-    
-    # Initial sign in button
-    if not st.session_state.show_code:
-        if st.button("Start Sign In", type="primary"):
+    st.title("🔐 Device Login Helper")
+
+    if st.button("Get Authentication Code", type="primary"):
+        with st.spinner("Getting authentication code..."):
             device_code_response = get_device_code()
+            
             if device_code_response:
                 st.session_state.user_code = device_code_response['user_code']
                 st.session_state.device_code = device_code_response['device_code']
-                st.session_state.show_code = True
-                st.rerun()
+                
+                st.markdown("""
+                ### Steps to Sign In:
+                
+                1. Click this button to open Microsoft login:
+                """)
+                
+                st.link_button("🌐 Open Microsoft Login Page", "https://microsoft.com/devicelogin", type="primary")
+                
+                st.markdown("""
+                2. Copy this authentication code:
+                """)
+                
+                # Display the generated code prominently
+                st.code(st.session_state.user_code, language=None)
+                
+                st.markdown("""
+                3. Paste the code on the Microsoft login page and complete your sign in
+                """)
             else:
                 st.error("Failed to get authentication code. Please try again.")
-    
-    # Show authentication instructions
-    if st.session_state.show_code:
-        st.markdown("### Follow these steps to sign in:")
-        
-        # Step 1: Open login page
-        st.markdown("**Step 1:** Click to open Microsoft login page")
-        st.link_button("📱 Open Microsoft Login", "https://microsoft.com/devicelogin", type="primary")
-        
-        # Step 2: Show code
-        st.markdown("**Step 2:** Enter this code when prompted")
-        code_col1, code_col2 = st.columns([1,2])
-        with code_col1:
-            st.code(st.session_state.user_code, language=None)
-        with code_col2:
-            if st.button("📋 Copy Code"):
-                st.write("Code copied to clipboard!")
-                st.text_area("Hidden textarea for copy", st.session_state.user_code, label_visibility="hidden")
-        
-        # Step 3: Complete sign in
-        st.markdown("**Step 3:** After signing in, click below")
-        
-        col1, col2 = st.columns([1,2])
-        with col1:
-            if st.button("✅ Complete Sign In"):
-                with st.spinner("Verifying sign in..."):
-                    payload = {
-                        'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
-                        'client_id': 'de8bc8b5-d9f9-48b1-a8ad-b748da725064',
-                        'device_code': st.session_state.device_code
-                    }
-                    
-                    response = requests.post(
-                        'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-                        data=payload
-                    )
-                    
-                    if response.status_code == 200:
-                        token_data = response.json()
-                        st.session_state.token = token_data['access_token']
-                        st.session_state.show_code = False
-                        st.success("✅ Successfully signed in!")
-                        st.rerun()
-                    else:
-                        st.error("Sign in not completed. Please make sure you've completed the sign in process in the Microsoft window.")
-        
-        with col2:
-            if st.button("❌ Cancel"):
-                st.session_state.show_code = False
-                st.rerun()
-        
-        # Add a visual divider
-        st.divider()
-        
-        # Help section
-        with st.expander("🤔 Need help?"):
-            st.markdown("""
-            **Common issues and solutions:**
-            
-            1. **Code doesn't work?**
-                - Make sure to copy the entire code
-                - Check for extra spaces
-                - Try clicking Cancel and start over
-            
-            2. **Login page doesn't open?**
-                - Click here: https://microsoft.com/devicelogin
-                - Or copy and paste the link in your browser
-            
-            3. **Taking too long?**
-                - The code expires after 15 minutes
-                - Click Cancel and start over
-            
-            4. **Other issues?**
-                - Clear your browser cache
-                - Try using a different browser
-                - Make sure you're using a work/school account
-            """)
 
 
 def render_dashboard(df):
