@@ -1,7 +1,7 @@
 # auth.py
 import msal
 import streamlit as st
-from save_state import CLIENT_ID, TENANT_ID, SCOPES, REDIRECT_URI
+from save_state import CLIENT_ID, TENANT_ID, SCOPES
 
 class GraphAuth:
     def __init__(self):
