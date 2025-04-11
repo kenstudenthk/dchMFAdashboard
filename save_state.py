@@ -1,10 +1,10 @@
-# config.py
+# save_state.py
+
 import os
 from typing import List
 
 # Azure AD Configuration
 CLIENT_ID = "b3eee569-7d4b-4976-9af4-9f683063448f"
-# Use organizations instead of common for work/school accounts
 TENANT_ID = "organizations"
 
 # Required Microsoft Graph API Scopes as a list

@@ -7,7 +7,6 @@ import time
 class GraphAuth:
     def __init__(self):
         self.client_id = CLIENT_ID
-        # Using organizations endpoint for work/school accounts
         self.authority = f"https://login.microsoftonline.com/{TENANT_ID}"
         
         self.app = msal.PublicClientApplication(
@@ -18,27 +17,20 @@ class GraphAuth:
     def get_device_flow(self):
         """Start device code flow authentication"""
         try:
-            # Add default scopes that MSAL expects
-            all_scopes = SCOPES + ['openid', 'profile', 'offline_access']
-            
-            # Initiate device flow with explicit scopes
-            flow = self.app.initiate_device_flow(scopes=all_scopes)
+            # Use only the Graph API scopes
+            flow = self.app.initiate_device_flow(scopes=SCOPES)
             
             if "user_code" not in flow:
                 error_msg = flow.get('error_description', 'Unknown error in device flow')
                 raise ValueError(f"Could not initiate device flow: {error_msg}")
             
-            # Ensure we have the verification message
-            if 'message' in flow:
-                st.info(flow['message'])
-                
             return flow
             
         except Exception as e:
             st.error(f"Error initiating device flow: {str(e)}")
             return None
 
-    def process_device_flow(self, flow, timeout=300):  # 5 minutes timeout
+    def process_device_flow(self, flow, timeout=300):
         """Process device flow authentication with timeout"""
         try:
             if not flow:
@@ -54,7 +46,7 @@ class GraphAuth:
                 try:
                     result = self.app.acquire_token_by_device_flow(
                         flow,
-                        timeout=5  # 5 seconds polling interval
+                        timeout=5
                     )
                     
                     if result and "access_token" in result:

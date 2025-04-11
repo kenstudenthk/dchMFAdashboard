@@ -29,19 +29,16 @@ def render_login():
 
     if 'auth_flow' not in st.session_state:
         st.session_state.auth_flow = None
-    if 'auth_start_time' not in st.session_state:
-        st.session_state.auth_start_time = None
 
     try:
         auth = init_auth()
 
         # Initialize authentication
         if st.button("Begin Authentication", use_container_width=True):
-            with st.spinner("Initializing device flow..."):
+            with st.spinner("Initializing authentication..."):
                 flow = auth.get_device_flow()
                 if flow and "user_code" in flow:
                     st.session_state.auth_flow = flow
-                    st.session_state.auth_start_time = time.time()
                     st.rerun()
                 else:
                     st.error("Failed to initialize authentication. Please try again.")
@@ -52,29 +49,33 @@ def render_login():
             
             st.markdown("### Authentication Instructions")
             
-            # Display the verification URI
-            st.markdown("1. **Visit this website:**")
-            st.code(flow.get('verification_uri', ''), language=None)
+            col1, col2 = st.columns([2,1])
             
-            # Display the user code
-            st.markdown("2. **Enter this code:**")
-            st.code(flow.get('user_code', ''), language=None)
-            
-            st.markdown("3. **Complete the sign-in process in your browser**")
-            
-            # Process authentication
-            with st.spinner("Waiting for authentication to complete..."):
-                result = auth.process_device_flow(flow)
+            with col1:
+                # Display the verification URI
+                st.markdown("1. **Visit this website:**")
+                st.code(flow.get('verification_uri', ''), language=None)
                 
-                if result and 'access_token' in result:
-                    st.session_state.token = result['access_token']
-                    st.session_state.authenticated = True
-                    st.success("✅ Authentication successful!")
-                    st.session_state.auth_flow = None
-                    time.sleep(1)
-                    st.rerun()
+                # Display the user code
+                st.markdown("2. **Enter this code:**")
+                st.code(flow.get('user_code', ''), language=None)
+                
+                st.markdown("3. **Complete the sign-in process in your browser**")
             
-            # Add cancel button
+            with col2:
+                # Process authentication
+                with st.spinner("Waiting for authentication..."):
+                    result = auth.process_device_flow(flow)
+                    
+                    if result and 'access_token' in result:
+                        st.session_state.token = result['access_token']
+                        st.session_state.authenticated = True
+                        st.success("✅ Authentication successful!")
+                        st.session_state.auth_flow = None
+                        time.sleep(1)
+                        st.rerun()
+            
+            # Cancel button
             if st.button("Cancel Authentication", type="secondary"):
                 st.session_state.auth_flow = None
                 st.rerun()
