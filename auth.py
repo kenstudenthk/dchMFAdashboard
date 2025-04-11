@@ -3,6 +3,50 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 
+def make_graph_request(endpoint: str, token: str) -> dict:
+    """Make a request to Microsoft Graph API with error handling"""
+    try:
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'ConsistencyLevel': 'eventual'
+        }
+        
+        response = requests.get(
+            endpoint,
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+            
+        error_data = response.json() if response.text else {}
+        
+        if response.status_code in [401, 403]:
+            st.error("🔑 Access Denied - Please check permissions and try again")
+            st.session_state.token = None
+            return None
+        elif response.status_code == 404:
+            st.error(f"❌ Resource not found: {endpoint}")
+        elif response.status_code == 429:
+            st.warning("⚠️ Too many requests. Please wait a moment and try again.")
+            retry_after = int(response.headers.get('Retry-After', 30))
+            time.sleep(retry_after)
+            return make_graph_request(endpoint, token)
+        else:
+            st.error(f"API Error ({response.status_code}): {error_data.get('error', {}).get('message')}")
+            
+        return None
+        
+    except requests.exceptions.Timeout:
+        st.error("⚠️ Request timed out. Please try again.")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error: {str(e)}")
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+    
+    return None
+
 def check_auth() -> bool:
     """Check if user is authenticated and token is not expired"""
     if 'token' not in st.session_state:
@@ -55,7 +99,6 @@ def render_login():
             st.session_state.token = token
             st.session_state.token_timestamp = datetime.now()
             st.success("✅ Authentication successful!")
-            # Don't use rerun here
         else:
             st.error("❌ Invalid token. Please try again.")
 
