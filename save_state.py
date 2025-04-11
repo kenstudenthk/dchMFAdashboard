@@ -5,6 +5,5 @@ ENDPOINT = "https://graph.microsoft.com/v1.0"
 ENDPOINTS = {
     'users': f"{ENDPOINT}/users",
     'me': f"{ENDPOINT}/me",
-    'auditLogs': f"{ENDPOINT}/auditLogs",
     'authMethods': f"{ENDPOINT}/reports/authenticationMethods"
 }
