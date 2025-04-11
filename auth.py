@@ -59,28 +59,58 @@ To add permissions:
     
     return None
 
+# auth.py
 def verify_token(token: str) -> bool:
     """Verify if the token is valid and has required permissions"""
     try:
-        # First check if token is valid
         headers = {'Authorization': f'Bearer {token}'}
+        
+        # Check token info
+        st.write("Checking token permissions...")
+        
+        # First test basic access
         me_response = requests.get(
             'https://graph.microsoft.com/v1.0/me',
             headers=headers
         )
         
         if me_response.status_code != 200:
+            st.error("Basic access test failed. Please check if you're logged in correctly.")
             return False
             
-        # Check if we have necessary permissions by making a test request
-        test_response = requests.get(
+        # Test User.Read.All permission
+        users_response = requests.get(
             'https://graph.microsoft.com/v1.0/users?$select=id&$top=1',
             headers=headers
         )
         
-        return test_response.status_code == 200
+        if users_response.status_code != 200:
+            st.error("""
+            Cannot access user list. 
+            Please ensure User.Read.All permission has admin consent.
+            Error details: {}
+            """.format(users_response.json().get('error', {}).get('message', 'Unknown error')))
+            return False
+            
+        # Test UserAuthenticationMethod.Read.All permission
+        test_user_id = users_response.json()['value'][0]['id']
+        auth_methods_response = requests.get(
+            f'https://graph.microsoft.com/v1.0/users/{test_user_id}/authentication/methods',
+            headers=headers
+        )
         
-    except:
+        if auth_methods_response.status_code != 200:
+            st.error("""
+            Cannot access authentication methods. 
+            Please ensure UserAuthenticationMethod.Read.All permission has admin consent.
+            Error details: {}
+            """.format(auth_methods_response.json().get('error', {}).get('message', 'Unknown error')))
+            return False
+            
+        return True
+        
+    except Exception as e:
+        st.error(f"Error verifying permissions: {str(e)}")
         return False
 
 def render_login():
@@ -89,38 +119,83 @@ def render_login():
     
     st.markdown("""
     ### Required Permissions:
-    Before getting your token, ensure you have these Microsoft Graph permissions:
+    This application requires the following Microsoft Graph permissions with **admin consent**:
     - User.Read.All
     - UserAuthenticationMethod.Read.All
     
     ### Get Your Access Token:
     1. Open [Microsoft Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer)
-    2. Sign in with your Microsoft account
+    2. Sign in with your admin account
     3. Click your profile icon → 'Modify Permissions'
-    4. Add the required permissions listed above
-    5. Click your profile icon again → 'Access Token'
-    6. Copy the token and paste below
+    4. Add these permissions and ensure they show as "Consented":
+        - User.Read.All
+        - UserAuthenticationMethod.Read.All
+    5. **Important**: If permissions show as "Not Consented":
+        - You need admin rights to consent
+        - Contact your Azure AD admin to grant consent
+        - Or use Azure Portal to grant admin consent
+    6. After permissions are consented, click profile icon → 'Access Token'
+    7. Copy the token and paste below
+    
+    ### Alternative: Get Token via Azure Portal
+    If Graph Explorer isn't working, try Azure Portal:
+    1. Go to [Azure Portal](https://portal.azure.com)
+    2. Navigate to Azure Active Directory
+    3. App Registrations → New Registration
+    4. Create a new app and note the Application ID
+    5. API Permissions → Add Permission
+    6. Add both required permissions
+    7. Click 'Grant admin consent'
+    8. Certificates & Secrets → New Client Secret
+    9. Use these credentials to get a token via POST to:
+       https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
     """)
+    
+    # Add expandable section for troubleshooting
+    with st.expander("🔍 Troubleshooting Permission Issues"):
+        st.markdown("""
+        1. **Check Admin Rights**
+           - You must be a Global Admin or Privileged Role Admin
+           - Check your role in Azure AD Admin Portal
+        
+        2. **Verify Permission Status**
+           - In Graph Explorer, permissions should show as "Consented"
+           - Green checkmarks should appear next to permissions
+        
+        3. **Grant Admin Consent via Azure Portal**
+           - Go to Azure Portal → Azure Active Directory
+           - Enterprise Applications → Find your app
+           - Permissions → Grant admin consent
+        
+        4. **Token Scope Issues**
+           - Ensure token includes all required scopes
+           - Try getting a new token after consent
+           - Clear browser cache and cookies
+        
+        5. **Common Error Messages**
+           - "Insufficient privileges": Need admin consent
+           - "Invalid scope": Token missing permissions
+           - "Access denied": Role or consent issues
+        """)
     
     token = st.text_input("Access Token:", type="password")
     if st.button("Login"):
         if not token:
             st.error("⚠️ Please enter a token")
         elif verify_token(token):
-            # Store token and timestamp
             st.session_state.token = token
             st.session_state.token_timestamp = datetime.now()
             st.success("✅ Authentication successful!")
             st.rerun()
         else:
-            st.error("❌ Invalid token or missing permissions. Please check the instructions above.")
+            st.error("❌ Please check the error messages above and try again.")
 
     st.markdown("""
     #### Token Tips:
+    - Must be generated AFTER granting admin consent
     - Tokens expire after 1 hour
-    - Ensure you have the required permissions
-    - If you get errors, get a new token
-    - Make sure you're signed in with an admin account
+    - Clear browser cache if issues persist
+    - Ensure you're using an admin account
     """)
 
 def check_auth() -> bool:
