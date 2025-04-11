@@ -1,13 +1,13 @@
 # auth.py
 import msal
 import streamlit as st
-from save_state import CLIENT_ID, CLIENT_SECRET, TENANT_ID, AUTHORITY, SCOPES
+from save_state import CLIENT_ID, CLIENT_SECRET, TENANT_ID,  SCOPES
 
 class GraphAuth:
     def __init__(self):
         self.client_id = CLIENT_ID
         self.client_secret = CLIENT_SECRET
-        self.authority = AUTHORITY
+        self.authority = f"https://login.microsoftonline.com/{TENANT_ID}"
         
         self.app = msal.PublicClientApplication(
             client_id=self.client_id,
