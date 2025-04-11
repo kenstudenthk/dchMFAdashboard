@@ -66,14 +66,15 @@ def get_device_code():
     """Get device code using tenant ID"""
     try:
         response = requests.post(
-            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/devicecode',
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/device_code',  # Changed to v1.0 endpoint
             data={
-                'scope': 'https://graph.microsoft.com/User.Read.All https://graph.microsoft.com/UserAuthenticationMethod.Read.All'
+                'resource': 'https://graph.microsoft.com'  # Changed from scope to resource
             }
         )
         
         if response.status_code == 200:
             return response.json()
+        st.error(f"Error response: {response.text}")
         return None
             
     except Exception as e:
@@ -84,15 +85,17 @@ def poll_for_token(device_code):
     """Poll for token after user logs in"""
     try:
         response = requests.post(
-            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token',
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/token',  # Changed to v1.0 endpoint
             data={
-                'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
-                'device_code': device_code
+                'grant_type': 'device_code',
+                'code': device_code,  # Changed from device_code to code
+                'resource': 'https://graph.microsoft.com'  # Added resource
             }
         )
         
         if response.status_code == 200:
             return response.json()
+        st.error(f"Token error: {response.text}")
         return None
     except Exception as e:
         st.error(f"Error: {str(e)}")
