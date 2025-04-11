@@ -17,12 +17,16 @@ class GraphAuth:
     def get_device_flow(self):
         """Start device code flow authentication"""
         try:
-            # Simple device flow initialization with just scopes
+            # Initiate device flow with explicit scopes
             flow = self.app.initiate_device_flow(scopes=SCOPES)
             
             if "user_code" not in flow:
                 error_msg = flow.get('error_description', 'Unknown error in device flow')
                 raise ValueError(f"Could not initiate device flow: {error_msg}")
+            
+            # Ensure we have the verification message
+            if 'message' in flow:
+                st.info(flow['message'])
                 
             return flow
             
@@ -36,11 +40,9 @@ class GraphAuth:
             if not flow:
                 return None
                 
-            # Store start time
             start_time = time.time()
             
             while True:
-                # Check if timeout exceeded
                 if time.time() - start_time > timeout:
                     st.error("Authentication timeout. Please try again.")
                     return None
@@ -56,8 +58,8 @@ class GraphAuth:
                         
                 except Exception as e:
                     if "timeout" not in str(e).lower():
-                        raise e
-                    # Continue polling if it's just a timeout
+                        st.error(f"Authentication error: {str(e)}")
+                        return None
                     continue
 
         except Exception as e:
