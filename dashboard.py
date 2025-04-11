@@ -37,94 +37,43 @@ def render_login():
 
         # Initialize authentication
         if st.button("Begin Authentication", use_container_width=True):
-            st.session_state.auth_flow = auth.initiate_device_flow()
-            st.session_state.auth_start_time = time.time()
-            st.rerun()
+            with st.spinner("Initializing device flow..."):
+                flow = auth.get_device_flow()
+                if flow and "user_code" in flow:
+                    st.session_state.auth_flow = flow
+                    st.session_state.auth_start_time = time.time()
+                    st.rerun()
+                else:
+                    st.error("Failed to initialize authentication. Please try again.")
 
         # Display authentication instructions
         if st.session_state.auth_flow:
             flow = st.session_state.auth_flow
             
-            # Create two columns for better layout
-            col1, col2 = st.columns([2,1])
+            st.markdown("### Authentication Instructions")
             
-            with col1:
-                st.markdown("### Authentication Instructions:")
-                st.markdown("1. Visit the Microsoft login page:")
-                st.code(flow.get('verification_uri', ''), language=None)
-                
-                st.markdown("2. Enter this code when prompted:")
-                st.code(flow.get('user_code', ''), language=None)
-                
-            with col2:
-                st.markdown("### Status")
-                with st.spinner("Waiting for authentication..."):
-                    result = auth.process_device_flow(flow)
-                    
-                    if result and 'access_token' in result:
-                        st.session_state.token = result['access_token']
-                        st.session_state.authenticated = True
-                        st.success("✅ Authentication successful!")
-                        st.session_state.auth_flow = None
-                        time.sleep(1)
-                        st.rerun()
-                    
-            # Add cancel button
-            if st.button("Cancel Authentication", type="secondary"):
-                st.session_state.auth_flow = None
-                st.rerun()
-
-    except Exception as e:
-        st.error("Authentication Error")
-        st.error(f"Details: {str(e)}")
-        st.session_state.auth_flow = None
-
-def render_login():
-    st.title("🔐 MFA Status Report")
-    st.markdown("### Microsoft Authentication Required")
-
-    if 'auth_flow' not in st.session_state:
-        st.session_state.auth_flow = None
-    if 'auth_start_time' not in st.session_state:
-        st.session_state.auth_start_time = None
-
-    try:
-        auth = init_auth()
-
-        # Initialize authentication
-        if st.button("Begin Authentication", use_container_width=True):
-            st.session_state.auth_flow = auth.get_device_flow()  # Changed from initiate_device_flow to get_device_flow
-            st.session_state.auth_start_time = time.time()
-            st.rerun()
-
-        # Display authentication instructions
-        if st.session_state.auth_flow:
-            flow = st.session_state.auth_flow
+            # Display the verification URI
+            st.markdown("1. **Visit this website:**")
+            st.code(flow.get('verification_uri', ''), language=None)
             
-            # Create two columns for better layout
-            col1, col2 = st.columns([2,1])
+            # Display the user code
+            st.markdown("2. **Enter this code:**")
+            st.code(flow.get('user_code', ''), language=None)
             
-            with col1:
-                st.markdown("### Authentication Instructions:")
-                st.markdown("1. Visit the Microsoft login page:")
-                st.code(flow.get('verification_uri', ''), language=None)
+            st.markdown("3. **Complete the sign-in process in your browser**")
+            
+            # Process authentication
+            with st.spinner("Waiting for authentication to complete..."):
+                result = auth.process_device_flow(flow)
                 
-                st.markdown("2. Enter this code when prompted:")
-                st.code(flow.get('user_code', ''), language=None)
-                
-            with col2:
-                st.markdown("### Status")
-                with st.spinner("Waiting for authentication..."):
-                    result = auth.process_device_flow(flow)
-                    
-                    if result and 'access_token' in result:
-                        st.session_state.token = result['access_token']
-                        st.session_state.authenticated = True
-                        st.success("✅ Authentication successful!")
-                        st.session_state.auth_flow = None
-                        time.sleep(1)
-                        st.rerun()
-                    
+                if result and 'access_token' in result:
+                    st.session_state.token = result['access_token']
+                    st.session_state.authenticated = True
+                    st.success("✅ Authentication successful!")
+                    st.session_state.auth_flow = None
+                    time.sleep(1)
+                    st.rerun()
+            
             # Add cancel button
             if st.button("Cancel Authentication", type="secondary"):
                 st.session_state.auth_flow = None

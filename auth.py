@@ -17,10 +17,25 @@ class GraphAuth:
     def get_device_flow(self):
         """Start device code flow authentication"""
         try:
-            flow = self.app.initiate_device_flow(scopes=SCOPES)
+            # Initialize device flow with proper scopes
+            flow = self.app.initiate_device_flow(
+                scopes=SCOPES,
+                post_logon_redirect_uri=None,  # No redirect needed for device flow
+                timeout=None  # Let the process_device_flow handle timeout
+            )
+            
             if "user_code" not in flow:
-                raise ValueError("Could not initiate device flow")
+                error_msg = flow.get('error_description', 'Unknown error in device flow')
+                raise ValueError(f"Could not initiate device flow: {error_msg}")
+                
+            if "message" not in flow:
+                flow["message"] = (
+                    f"To sign in, use a web browser to open {flow['verification_uri']} "
+                    f"and enter the code {flow['user_code']} to authenticate."
+                )
+                
             return flow
+            
         except Exception as e:
             st.error(f"Error initiating device flow: {str(e)}")
             return None
@@ -28,6 +43,9 @@ class GraphAuth:
     def process_device_flow(self, flow, timeout=300):  # 5 minutes timeout
         """Process device flow authentication with timeout"""
         try:
+            if not flow:
+                return None
+                
             # Store start time
             start_time = time.time()
             
@@ -42,8 +60,10 @@ class GraphAuth:
                         flow,
                         timeout=5  # 5 seconds polling interval
                     )
-                    if result:
+                    
+                    if result and "access_token" in result:
                         return result
+                        
                 except Exception as e:
                     if "timeout" not in str(e).lower():
                         raise e
