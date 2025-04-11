@@ -132,98 +132,101 @@ def verify_token(token: str) -> bool:
         st.error(f"Error verifying permissions: {str(e)}")
         return False
 
+# auth.py
+import streamlit as st
+import requests
+import time
+from datetime import datetime, timedelta
+
+def get_device_code():
+    """Get device code for authentication"""
+    payload = {
+        'client_id': 'de8bc8b5-d9f9-48b1-a8ad-b748da725064',  # Microsoft Graph Explorer client ID
+        'scope': 'User.Read.All UserAuthenticationMethod.Read.All'
+    }
+    
+    response = requests.post(
+        'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
+        data=payload
+    )
+    
+    if response.status_code == 200:
+        return response.json()
+    return None
+
+def poll_for_token(device_code):
+    """Poll for token using device code"""
+    payload = {
+        'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+        'client_id': 'de8bc8b5-d9f9-48b1-a8ad-b748da725064',
+        'device_code': device_code
+    }
+    
+    max_attempts = 60  # 5 minutes maximum
+    for _ in range(max_attempts):
+        response = requests.post(
+            'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+            data=payload
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        
+        # Wait and try again
+        time.sleep(5)
+    
+    return None
+
 def render_login():
-    """Render the login page"""
+    """Render the device code login page"""
     st.title("🔐 MFA Status Report")
     
-    # Add direct link to Azure AD admin consent
-    tenant_id = st.text_input("Enter your Azure AD Tenant ID (optional):", 
-                             help="Found in Azure Portal → Azure Active Directory → Overview")
-    
-    if tenant_id:
-        admin_consent_url = f"https://login.microsoftonline.com/{tenant_id}/adminconsent?client_id=de8bc8b5-d9f9-48b1-a8ad-b748da725064"
-        st.markdown(f"[Click here to grant admin consent directly]({admin_consent_url})")
-    
-    st.markdown("""
-    ### Fix Permission Issues:
-    
-    1. **Method 1: Using Azure Portal**
-       1. Go to [Azure Portal](https://portal.azure.com)
-       2. Navigate to Azure Active Directory
-       3. Click on Enterprise Applications
-       4. Search for "Microsoft Graph Explorer"
-       5. Click on Permissions
-       6. Click "Grant admin consent for [Your Organization]"
-       7. Wait 5 minutes
-       8. Get new token from Graph Explorer
-    
-    2. **Method 2: Using Azure AD Admin Center**
-       1. Go to [Azure AD Admin Center](https://aad.portal.azure.com)
-       2. Enterprise Applications
-       3. Microsoft Graph Explorer
-       4. Permissions
-       5. Grant admin consent
-    
-    3. **Method 3: Using PowerShell**
-       ```powershell
-       Connect-AzureAD
-       $sp = Get-AzureADServicePrincipal -Filter "displayName eq 'Microsoft Graph Explorer'"
-       $pending = Get-AzureADServicePrincipalOAuth2PermissionGrant -ObjectId $sp.ObjectId
-       foreach($grant in $pending) {
-           Set-AzureADServicePrincipalOAuth2PermissionGrant -ObjectId $grant.ObjectId -ConsentType "AllPrincipals"
-       }
-       ```
-    
-    ### Required Permissions:
-    - User.Read.All
-    - UserAuthenticationMethod.Read.All
-    
-    Both permissions must show as "Consented" in Graph Explorer.
-    """)
-    
-    token = st.text_input("Access Token:", type="password")
-    if st.button("Login"):
-        if not token:
-            st.error("⚠️ Please enter a token")
-        elif verify_token(token):
-            st.session_state.token = token
+    if st.button("Sign In with Microsoft"):
+        # Get device code
+        device_code_response = get_device_code()
+        if not device_code_response:
+            st.error("Failed to start authentication process")
+            return
+            
+        # Show user code and instructions
+        st.markdown(f"""
+        ### Please follow these steps to sign in:
+
+        1. Go to: https://microsoft.com/devicelogin
+        2. Enter code: `{device_code_response['user_code']}`
+        3. Sign in with your Microsoft account
+        4. Grant the requested permissions
+        
+        Waiting for you to complete the sign-in...
+        """)
+        
+        # Create placeholder for progress
+        progress_placeholder = st.empty()
+        
+        # Poll for token
+        token_response = poll_for_token(device_code_response['device_code'])
+        
+        if token_response and 'access_token' in token_response:
+            # Store token and timestamp
+            st.session_state.token = token_response['access_token']
             st.session_state.token_timestamp = datetime.now()
             st.success("✅ Authentication successful!")
             st.rerun()
         else:
-            st.error("❌ Please check the error messages above and try again.")
+            st.error("Authentication failed or timed out. Please try again.")
 
-    with st.expander("🔍 Still having issues?"):
-        st.markdown("""
-        1. **Clear Token Cache**
-           - Clear browser cache
-           - Sign out of Graph Explorer
-           - Sign in again
-           - Get new token
-        
-        2. **Verify Admin Role**
-           ```
-           1. Go to Azure Portal
-           2. Azure Active Directory
-           3. Users
-           4. Find your account
-           5. Assigned roles
-           6. Verify you have Global Admin or Authentication Admin
-           ```
-        
-        3. **Check App Registration**
-           - Ensure Microsoft Graph Explorer is registered
-           - Check API permissions are added
-           - Verify admin consent status
-        
-        4. **Wait for Propagation**
-           - After granting consent, wait 5-15 minutes
-           - Azure AD can take time to propagate permissions
-        
-        5. **Contact Support**
-           - If issues persist, contact Azure support
-           - Provide error messages shown above
-        """)
+    st.markdown("""
+    ### About This Authentication Method
+    - More secure than copying tokens
+    - Handles permissions automatically
+    - Works with MFA and conditional access
+    - No need to copy/paste tokens
+    
+    ### Required Permissions
+    This app needs these permissions:
+    - User.Read.All
+    - UserAuthenticationMethod.Read.All
+    """)
 def check_auth() -> bool:
     """Check if user is authenticated and token is not expired"""
     if 'token' not in st.session_state:
