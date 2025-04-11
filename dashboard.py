@@ -111,18 +111,35 @@ def get_device_code():
             'scope': 'https://graph.microsoft.com/User.Read.All https://graph.microsoft.com/UserAuthenticationMethod.Read.All'
         }
         
+        # Print request details for debugging
+        st.write("Sending request with payload:", payload)
+        
         response = requests.post(
             'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
             data=payload
         )
         
+        # Print response details for debugging
+        st.write("Response status code:", response.status_code)
+        st.write("Response content:", response.text)
+        
         if response.status_code == 200:
             return response.json()
+        else:
+            st.error(f"API Error: Status Code {response.status_code}")
+            st.error(f"Error Response: {response.text}")
         return None
             
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network Error: {str(e)}")
         return None
+    except ValueError as e:
+        st.error(f"JSON Parsing Error: {str(e)}")
+        return None
+    except Exception as e:
+        st.error(f"Unexpected Error: {str(e)}")
+        return None
+
 
 
 def poll_for_token(device_code):
@@ -171,8 +188,6 @@ def render_login():
                 st.markdown("""
                 3. Paste the code on the Microsoft login page and complete your sign in
                 """)
-            else:
-                st.error("Failed to get authentication code. Please try again.")
 
 
 def render_dashboard(df):
