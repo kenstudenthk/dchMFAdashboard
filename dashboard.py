@@ -59,55 +59,13 @@ def logout():
     st.success("👋 Logged out successfully!")
 
 # Dashboard Functions
-def load_mfa_data():
-    """Load MFA status data"""
-    try:
-        users_endpoint = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,accountEnabled"
-        users_data = make_graph_request(users_endpoint, st.session_state.token)
-        
-        if not users_data:
-            return None
-            
-        users = users_data.get('value', [])
-        mfa_data = []
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for i, user in enumerate(users):
-            auth_methods_endpoint = f"https://graph.microsoft.com/v1.0/users/{user['id']}/authentication/methods"
-            auth_methods = make_graph_request(auth_methods_endpoint, st.session_state.token)
-            
-            if auth_methods:
-                methods = [m.get('method', '') for m in auth_methods.get('value', [])]
-                has_mfa = any(m for m in methods if m not in ['password', ''])
-                
-                mfa_data.append({
-                    'DisplayName': user['displayName'],
-                    'Email': user['userPrincipalName'],
-                    'AccountEnabled': user['accountEnabled'],
-                    'MFAEnabled': has_mfa,
-                    'AuthMethods': ', '.join(m for m in methods if m)
-                })
-            
-            progress = (i + 1) / len(users)
-            progress_bar.progress(progress)
-            status_text.text(f"Loading user data... {i + 1}/{len(users)}")
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        return pd.DataFrame(mfa_data)
-        
-    except Exception as e:
-        st.error(f"Error loading MFA data: {str(e)}")
-        return None
-def get_device_code_with_tenant():
+TENANT_ID = "your_tenant_id"  # Replace with your tenant ID
+
+def get_device_code():
     """Get device code using tenant ID"""
     try:
-        tenant_id = "your_tenant_id"  # Replace with your tenant ID
         response = requests.post(
-            f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/devicecode',
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/devicecode',
             data={
                 'scope': 'https://graph.microsoft.com/User.Read.All https://graph.microsoft.com/UserAuthenticationMethod.Read.All'
             }
@@ -121,45 +79,16 @@ def get_device_code_with_tenant():
         st.error(f"Error: {str(e)}")
         return None
 
-def get_device_code_with_client():
-    """Get device code using client ID"""
-    try:
-        client_id = "your_client_id"  # Replace with your client ID
-        response = requests.post(
-            'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
-            data={
-                'client_id': client_id,
-                'scope': 'https://graph.microsoft.com/User.Read.All https://graph.microsoft.com/UserAuthenticationMethod.Read.All'
-            }
-        )
-        
-        if response.status_code == 200:
-            return response.json()
-        return None
-            
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
-        return None
-
-def poll_for_token(device_code, use_tenant=True):
+def poll_for_token(device_code):
     """Poll for token after user logs in"""
     try:
-        tenant_id = "your_tenant_id"  # Replace with your tenant ID
-        client_id = "your_client_id"  # Replace with your client ID
-        
-        # Choose URL based on whether using tenant or client ID
-        token_url = f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token' if use_tenant else 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
-        
-        data = {
-            'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
-            'device_code': device_code
-        }
-        
-        # Add client_id if not using tenant
-        if not use_tenant:
-            data['client_id'] = client_id
-            
-        response = requests.post(token_url, data=data)
+        response = requests.post(
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token',
+            data={
+                'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+                'device_code': device_code
+            }
+        )
         
         if response.status_code == 200:
             return response.json()
@@ -183,18 +112,9 @@ def check_token_valid():
 def render_login():
     st.title("🔐 Device Login")
 
-    auth_type = st.radio(
-        "Authentication Type",
-        ["Tenant ID", "Client ID"],
-        horizontal=True
-    )
-
     if st.button("Get Authentication Code", type="primary"):
         with st.spinner("Getting authentication code..."):
-            if auth_type == "Tenant ID":
-                device_code_response = get_device_code_with_tenant()
-            else:
-                device_code_response = get_device_code_with_client()
+            device_code_response = get_device_code()
             
             if device_code_response:
                 st.session_state.user_code = device_code_response['user_code']
@@ -224,10 +144,7 @@ def render_login():
                     start_time = time.time()
                     
                     while time.time() - start_time < expires_in:
-                        token_response = poll_for_token(
-                            st.session_state.device_code, 
-                            use_tenant=(auth_type == "Tenant ID")
-                        )
+                        token_response = poll_for_token(st.session_state.device_code)
                         if token_response:
                             st.session_state.token = token_response['access_token']
                             expires_in = token_response['expires_in']
