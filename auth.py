@@ -7,6 +7,7 @@ import time
 class GraphAuth:
     def __init__(self):
         self.client_id = CLIENT_ID
+        # Using organizations endpoint for work/school accounts
         self.authority = f"https://login.microsoftonline.com/{TENANT_ID}"
         
         self.app = msal.PublicClientApplication(
@@ -17,8 +18,11 @@ class GraphAuth:
     def get_device_flow(self):
         """Start device code flow authentication"""
         try:
+            # Add default scopes that MSAL expects
+            all_scopes = SCOPES + ['openid', 'profile', 'offline_access']
+            
             # Initiate device flow with explicit scopes
-            flow = self.app.initiate_device_flow(scopes=SCOPES)
+            flow = self.app.initiate_device_flow(scopes=all_scopes)
             
             if "user_code" not in flow:
                 error_msg = flow.get('error_description', 'Unknown error in device flow')
