@@ -38,7 +38,8 @@ def init_session_state():
         'processed_df': None,
         'num_users': 100,
         'data_loaded': False,
-        'df': None
+        'df': None,
+        'force_restart': False  # Add this new state variable
     }
     
     for key, default_value in defaults.items():
@@ -77,6 +78,38 @@ def get_mfa_status_cached(token: str, limit: int, skip: int = 0):
     except Exception as e:
         st.error(f"Error in cached MFA status check: {str(e)}")
         return None
+
+class StateManager:
+    def __init__(self, state_file: str = '.streamlit/process_state.json'):
+        self.state_file = state_file
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    
+    def save_state(self, state: dict) -> None:
+        """Save current processing state"""
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f)
+        except Exception as e:
+            st.error(f"Error saving state: {e}")
+
+    def load_state(self) -> dict:
+        """Load saved processing state"""
+        try:
+            if os.path.exists(self.state_file):
+                with open(self.state_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            st.error(f"Error loading state: {e}")
+        return {}
+
+    def clear_state(self) -> None:
+        """Clear saved state"""
+        try:
+            if os.path.exists(self.state_file):
+                os.remove(self.state_file)
+        except Exception as e:
+            st.error(f"Error clearing state: {e}")    
+
 class UserAnalyzer:
     def __init__(self):
         self.init_session_state()
