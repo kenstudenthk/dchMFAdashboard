@@ -26,23 +26,37 @@ def init_session_state():
 def render_login():
     """Render login interface"""
     st.title("🔐 MFA Status Report")
-    st.markdown("### Authentication Required")
+    st.markdown("### Microsoft Authentication Required")
     
     try:
         auth = init_auth()
         
-        if st.button("Login with Microsoft", use_container_width=True):
-            with st.spinner("Authenticating..."):
-                result = auth.get_token()
+        if st.button("Sign in with Microsoft Account", use_container_width=True):
+            with st.spinner("Initializing authentication..."):
+                # Get the authentication flow
+                flow = auth.get_auth_flow()
                 
-                if result and 'access_token' in result:
-                    st.session_state.token = result['access_token']
-                    st.session_state.authenticated = True
-                    st.success("✅ Successfully authenticated!")
-                    time.sleep(1)
-                    st.rerun()
+                if flow and 'user_code' in flow:
+                    # Display the device code to the user
+                    st.code(flow['message'])
+                    st.markdown("👆 Please follow the instructions above to sign in")
+                    
+                    # Wait for the user to complete authentication
+                    with st.spinner("Waiting for authentication..."):
+                        result = auth.acquire_token_by_flow(flow)
+                        
+                        if result and 'access_token' in result:
+                            st.session_state.token = result['access_token']
+                            st.session_state.authenticated = True
+                            st.success("✅ Successfully authenticated!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ Authentication failed. Please try again.")
+                            if result and 'error' in result:
+                                st.error(f"Error: {result.get('error_description', 'Unknown error')}")
                 else:
-                    st.error("❌ Authentication failed. Please check your credentials.")
+                    st.error("Failed to initialize authentication flow")
     
     except Exception as e:
         st.error("Authentication Error")

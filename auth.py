@@ -7,25 +7,31 @@ class GraphAuth:
     def __init__(self):
         self.client_id = CLIENT_ID
         self.client_secret = CLIENT_SECRET
-        self.authority = AUTHORITY
+        self.authority = f"https://login.microsoftonline.com/{TENANT_ID}"
         
-        self.app = msal.ConfidentialClientApplication(
+        self.app = msal.PublicClientApplication(
             client_id=self.client_id,
-            client_credential=self.client_secret,
             authority=self.authority
         )
 
-    def get_token(self):
-        """Get access token using client credentials flow"""
+    def get_auth_flow(self):
+        """Generate device code flow for interactive login"""
         try:
-            result = self.app.acquire_token_for_client(scopes=SCOPES)
-            if "access_token" in result:
-                return result
-            else:
-                st.error(f"Error acquiring token: {result.get('error_description', 'Unknown error')}")
-                return None
+            flow = self.app.initiate_device_flow(scopes=SCOPES)
+            if "user_code" not in flow:
+                raise ValueError("Failed to create device flow")
+            return flow
         except Exception as e:
-            st.error(f"Authentication error: {str(e)}")
+            st.error(f"Error creating authentication flow: {str(e)}")
+            return None
+
+    def acquire_token_by_flow(self, flow):
+        """Acquire token using device code flow"""
+        try:
+            result = self.app.acquire_token_by_device_flow(flow)
+            return result
+        except Exception as e:
+            st.error(f"Error acquiring token: {str(e)}")
             return None
 
 def init_auth():

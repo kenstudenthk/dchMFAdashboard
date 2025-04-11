@@ -8,10 +8,17 @@ CLIENT_SECRET = "oVL8Q~5Xe4y~86pIBYPBOUi7swmIsRpnj75aAcGy"
 TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"
 
 # Required Microsoft Graph API Scopes
+# Redirect URI for authentication
+REDIRECT_URI = "http://localhost:8501"  # Streamlit default port
+
+# Required Microsoft Graph API Scopes
 SCOPES = [
-    'https://graph.microsoft.com/.default'  # This is the correct scope for client credentials
+    'User.Read',
+    'User.Read.All',
+    'Directory.Read.All',
+    'UserAuthenticationMethod.Read.All',
+    'AuditLog.Read.All'
 ]
 
-# Azure AD endpoints
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+# Graph API endpoint
 ENDPOINT = "https://graph.microsoft.com/v1.0"
