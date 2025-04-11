@@ -67,13 +67,16 @@ def get_device_code():
     """Get device code for authentication"""
     try:
         response = requests.post(
-            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/devicecode',
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/devicecode',  # Updated to v2.0 endpoint
             data={
                 'client_id': CLIENT_ID,
-                'scope': 'User.Read.All Group.ReadWrite.All UserAuthenticationMethod.ReadWrite.All AuditLog.Read.All'
+                'scope': 'https://graph.microsoft.com/.default'  # Updated scope
             }
         )
-        return response.json() if response.status_code == 200 else None
+        if response.status_code == 200:
+            return response.json()
+        st.error(f"Failed to get device code: {response.text}")
+        return None
     except Exception as e:
         st.error(f"Error: {str(e)}")
         return None
@@ -82,18 +85,23 @@ def poll_for_token(device_code):
     """Poll for token after user logs in"""
     try:
         response = requests.post(
-            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/token',
+            f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token',  # Updated to v2.0 endpoint
             data={
-                'grant_type': 'device_code',
+                'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',  # Updated grant type
                 'client_id': CLIENT_ID,
-                'code': device_code,
-                'resource': 'https://graph.microsoft.com'
+                'device_code': device_code,
+                'scope': 'https://graph.microsoft.com/.default'  # Updated scope
             }
         )
         
         if response.status_code == 200:
             return response.json()
+        
+        error_data = response.json()
+        if error_data.get('error') != 'authorization_pending':
+            st.error(f"Token error: {response.text}")
         return None
+        
     except Exception as e:
         st.error(f"Error: {str(e)}")
         return None
@@ -111,7 +119,7 @@ def get_user_data(token):
         # Test the token first
         st.write("Testing API connection...")
         test_response = requests.get(
-            'https://graph.microsoft.com/v1.0/me',
+            'https://graph.microsoft.com/v1.0/users',  # Changed from /me to /users for testing
             headers=headers
         )
         if test_response.status_code != 200:
@@ -148,7 +156,7 @@ def get_user_data(token):
             # Get MFA status
             progress_text.write(f"Checking MFA status for {user.get('displayName', 'Unknown')}...")
             mfa_response = requests.get(
-                f'https://graph.microsoft.com/beta/users/{user_id}/authentication/methods',
+                f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',  # Updated MFA check endpoint
                 headers=headers
             )
             
@@ -174,28 +182,22 @@ def get_user_data(token):
                 elif 'STANDARDPACK' in sku:
                     licenses.append('Office365 E1')
                     has_target_license = True
-                elif 'EMS' in sku:
-                    licenses.append('EMS E3')
-                elif 'EMSPREMIUM' in sku:
-                    licenses.append('EMS E5')
-                elif 'Win10_VDA_E3' in sku:
-                    licenses.append('Windows 10/11 Enterprise E3')
             
-            # Check if MFA is enabled
-            mfa_enabled = False
+            # Check if MFA is required
+            mfa_enabled = True  # Default to True
             if mfa_response.status_code == 200:
-                mfa_methods = mfa_response.json().get('value', [])
-                mfa_enabled = any(method.get('type') != 'password' for method in mfa_methods)
+                mfa_data = mfa_response.json()
+                mfa_enabled = bool(mfa_data)  # If requirements exist, MFA is enabled
             
-            # Only include users with E1/E3 license
-            if has_target_license:
+            # Only include users with E1/E3 license and no MFA
+            if has_target_license and not mfa_enabled:
                 users_data.append({
                     'Name': user.get('displayName', ''),
                     'Mail': user.get('mail', ''),
                     'UPN': user.get('userPrincipalName', ''),
                     'Licenses': ', '.join(licenses),
                     'Creation Date': user.get('createdDateTime', ''),
-                    'MFA Status': 'Enabled' if mfa_enabled else 'Disabled',
+                    'MFA Status': 'Disabled' if not mfa_enabled else 'Enabled',
                     'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never')
                 })
             
@@ -205,7 +207,7 @@ def get_user_data(token):
         progress_text.empty()
         
         if not users_data:
-            st.warning("No users found matching the criteria (E1/E3 license)")
+            st.warning("No users found matching the criteria (E1/E3 license with MFA disabled)")
             return None
             
         return pd.DataFrame(users_data)
@@ -231,6 +233,7 @@ def main():
                 2. Enter this code:
                 """)
                 st.code(device_code_response['user_code'])
+                st.write(device_code_response.get('message', ''))  # Show Microsoft's instructions
                 
                 with st.spinner("Waiting for authentication..."):
                     interval = int(device_code_response.get('interval', 5))
@@ -248,55 +251,33 @@ def main():
     else:
         st.write("Currently logged in")
         
-        if st.button("Get User Report", type="primary"):
-            with st.spinner("Fetching user data..."):
-                # Debug: Print token
-                st.write("Token available:", bool(st.session_state.token))
-                
-                df = get_user_data(st.session_state.token)
-                
-                if df is not None and not df.empty:
-                    st.write(f"Found {len(df)} users with E1/E3 license")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Get User Report", type="primary"):
+                with st.spinner("Fetching user data..."):
+                    df = get_user_data(st.session_state.token)
                     
-                    # Filters
-                    st.subheader("Filters")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        license_filter = st.multiselect(
-                            "License Type",
-                            options=df['Licenses'].unique()
-                        )
-                    with col2:
-                        mfa_filter = st.selectbox(
-                            "MFA Status",
-                            options=['All', 'Enabled', 'Disabled']
-                        )
-                    
-                    # Apply filters
-                    filtered_df = df.copy()
-                    if license_filter:
-                        filtered_df = filtered_df[filtered_df['Licenses'].isin(license_filter)]
-                    if mfa_filter != 'All':
-                        filtered_df = filtered_df[filtered_df['MFA Status'] == mfa_filter]
-                    
-                    # Display results
-                    st.dataframe(filtered_df)
-                    
-                    # Export options
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("Export to Excel"):
-                            filtered_df.to_excel("user_report.xlsx", index=False)
-                            st.success("Exported to Excel!")
-                    with col2:
-                        if st.button("Export to CSV"):
-                            filtered_df.to_csv("user_report.csv", index=False)
-                            st.success("Exported to CSV!")
+                    if df is not None and not df.empty:
+                        st.write(f"Found {len(df)} users with E1/E3 license and MFA disabled")
+                        
+                        # Display results
+                        st.dataframe(df)
+                        
+                        # Export options
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("Export to Excel"):
+                                df.to_excel("user_report.xlsx", index=False)
+                                st.success("Exported to Excel!")
+                        with col2:
+                            if st.button("Export to CSV"):
+                                df.to_csv("user_report.csv", index=False)
+                                st.success("Exported to CSV!")
         
-        if st.button("Logout"):
-            st.session_state.token = None
-            st.rerun()
-
+        with col2:
+            if st.button("Logout"):
+                st.session_state.token = None
+                st.rerun()
 def check_token_valid():
     if 'token' not in st.session_state:
         return False
