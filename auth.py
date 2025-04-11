@@ -7,7 +7,7 @@ class GraphAuth:
     def __init__(self):
         self.client_id = CLIENT_ID
         self.client_secret = CLIENT_SECRET
-        self.authority = f"https://login.microsoftonline.com/{TENANT_ID}"
+        self.authority = AUTHORITY
         
         self.app = msal.PublicClientApplication(
             client_id=self.client_id,
