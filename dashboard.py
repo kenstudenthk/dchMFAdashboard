@@ -79,46 +79,61 @@ def render_login():
         st.error(f"Details: {str(e)}")
         st.session_state.auth_flow = None
 
-def render_report():
-    """Render the main report interface"""
-    st.title("📊 MFA Status Report")
-    
-    try:
-        # Initialize Graph API
-        graph_api = GraphAPI(st.session_state.token)
-        
-        # Add load data button
-        if st.button("Load User Data"):
-            with st.spinner("Loading user data..."):
-                df = graph_api.get_users_report()
-                st.session_state.data = df
-        
-        # Show data if available
-        if st.session_state.data is not None:
-            df = st.session_state.data
-            
-            # Add filters
-            mfa_filter = st.checkbox("Show only MFA disabled users")
-            if mfa_filter:
-                df = df[~df['MFA Enabled']]
-            
-            # Display data
-            st.dataframe(df)
-            
-            # Export button
-            if st.button("Export to CSV"):
-                csv = df.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"mfa_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-    
-    except Exception as e:
-        st.error("Error in rendering report")
-        st.error(f"Details: {str(e)}")
+def render_login():
+    st.title("🔐 MFA Status Report")
+    st.markdown("### Microsoft Authentication Required")
 
+    if 'auth_flow' not in st.session_state:
+        st.session_state.auth_flow = None
+    if 'auth_start_time' not in st.session_state:
+        st.session_state.auth_start_time = None
+
+    try:
+        auth = init_auth()
+
+        # Initialize authentication
+        if st.button("Begin Authentication", use_container_width=True):
+            st.session_state.auth_flow = auth.get_device_flow()  # Changed from initiate_device_flow to get_device_flow
+            st.session_state.auth_start_time = time.time()
+            st.rerun()
+
+        # Display authentication instructions
+        if st.session_state.auth_flow:
+            flow = st.session_state.auth_flow
+            
+            # Create two columns for better layout
+            col1, col2 = st.columns([2,1])
+            
+            with col1:
+                st.markdown("### Authentication Instructions:")
+                st.markdown("1. Visit the Microsoft login page:")
+                st.code(flow.get('verification_uri', ''), language=None)
+                
+                st.markdown("2. Enter this code when prompted:")
+                st.code(flow.get('user_code', ''), language=None)
+                
+            with col2:
+                st.markdown("### Status")
+                with st.spinner("Waiting for authentication..."):
+                    result = auth.process_device_flow(flow)
+                    
+                    if result and 'access_token' in result:
+                        st.session_state.token = result['access_token']
+                        st.session_state.authenticated = True
+                        st.success("✅ Authentication successful!")
+                        st.session_state.auth_flow = None
+                        time.sleep(1)
+                        st.rerun()
+                    
+            # Add cancel button
+            if st.button("Cancel Authentication", type="secondary"):
+                st.session_state.auth_flow = None
+                st.rerun()
+
+    except Exception as e:
+        st.error("Authentication Error")
+        st.error(f"Details: {str(e)}")
+        st.session_state.auth_flow = None
 def main():
     """Main function to run the Streamlit app"""
     try:

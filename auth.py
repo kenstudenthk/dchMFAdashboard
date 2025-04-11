@@ -3,6 +3,7 @@ import msal
 import streamlit as st
 from save_state import CLIENT_ID, TENANT_ID, SCOPES
 import time
+
 class GraphAuth:
     def __init__(self):
         self.client_id = CLIENT_ID
@@ -14,14 +15,14 @@ class GraphAuth:
         )
 
     def get_device_flow(self):
-        """Initialize device code flow"""
+        """Start device code flow authentication"""
         try:
             flow = self.app.initiate_device_flow(scopes=SCOPES)
             if "user_code" not in flow:
-                raise ValueError("Failed to create device flow")
+                raise ValueError("Could not initiate device flow")
             return flow
         except Exception as e:
-            st.error(f"Error creating device flow: {str(e)}")
+            st.error(f"Error initiating device flow: {str(e)}")
             return None
 
     def process_device_flow(self, flow, timeout=300):  # 5 minutes timeout
