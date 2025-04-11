@@ -8,28 +8,16 @@ import pandas as pd
 import plotly.express as px
 from collections import Counter
 
-# Configure Streamlit
-st.set_page_config(
-    page_title="Microsoft Graph User Report",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# Very basic page config with minimal session state
+st.set_page_config(page_title="Microsoft Graph User Report")
 
-# Initialize session state
-if 'token' not in st.session_state:
+# Initialize only essential session state variables
+if "token" not in st.session_state:
     st.session_state.token = None
-if 'data' not in st.session_state:
-    st.session_state.data = []
-if 'processing' not in st.session_state:
-    st.session_state.processing = False
-if 'processed_count' not in st.session_state:
-    st.session_state.processed_count = 0
+# Constants
+TENANT_ID = "your_tenant_id"
+CLIENT_ID = "1b730954-1685-4b74-9bfd-dac224a7b894"
 
-# Increase server timeout (in seconds)
-if not st.session_state.get('initialized'):
-    st.cache_data.clear()
-    st.session_state.initialized = True
-    
 # Disable automatic refresh
 st.cache_resource(ttl=3600)  # Cache resources for 1 hour
 
