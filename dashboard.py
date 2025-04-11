@@ -44,12 +44,11 @@ def load_mfa_data():
                         has_mfa = any(m for m in methods if m not in ['password', ''])
                     
                     mfa_data.append({
-                        'Display Name': user['displayName'],
-                        'Email': user['userPrincipalName'],
-                        'Account Status': 'Active' if user['accountEnabled'] else 'Disabled',
-                        'MFA Status': 'Enabled' if has_mfa else 'Disabled',
-                        'Authentication Methods': ', '.join(m for m in methods if m),
-                        'Has MFA': has_mfa  # Boolean column for calculations
+                        'DisplayName': user['displayName'],
+                        'UserPrincipalName': user['userPrincipalName'],
+                        'AccountEnabled': user['accountEnabled'],
+                        'MFAEnabled': has_mfa,
+                        'AuthMethods': ', '.join(m for m in methods if m)
                     })
                 except Exception as e:
                     st.error(f"Error processing user {user['displayName']}: {str(e)}")
@@ -59,8 +58,8 @@ def load_mfa_data():
         # Convert to DataFrame
         df = pd.DataFrame(mfa_data)
         
-        # Sort by Display Name
-        df = df.sort_values('Display Name')
+        # Sort by DisplayName
+        df = df.sort_values('DisplayName')
         
         return df
         
@@ -78,11 +77,11 @@ def render_dashboard(df):
         st.metric("Total Users", total_users)
     
     with col2:
-        active_users = len(df[df['Account Status'] == 'Active'])
+        active_users = len(df[df['AccountEnabled'] == True])
         st.metric("Active Users", active_users)
     
     with col3:
-        mfa_enabled = df['Has MFA'].sum()
+        mfa_enabled = df['MFAEnabled'].sum()
         st.metric("MFA Enabled", int(mfa_enabled))
     
     with col4:
@@ -95,27 +94,43 @@ def render_dashboard(df):
     # Filter controls
     col1, col2 = st.columns(2)
     with col1:
-        status_filter = st.multiselect(
+        account_filter = st.multiselect(
             "Account Status",
-            options=['Active', 'Disabled'],
-            default=['Active']
+            options=[True, False],
+            default=[True],
+            format_func=lambda x: "Active" if x else "Disabled"
         )
     with col2:
         mfa_filter = st.multiselect(
             "MFA Status",
-            options=['Enabled', 'Disabled'],
-            default=['Enabled', 'Disabled']
+            options=[True, False],
+            default=[True, False],
+            format_func=lambda x: "Enabled" if x else "Disabled"
         )
     
     # Apply filters
     filtered_df = df[
-        (df['Account Status'].isin(status_filter)) &
-        (df['MFA Status'].isin(mfa_filter))
+        (df['AccountEnabled'].isin(account_filter)) &
+        (df['MFAEnabled'].isin(mfa_filter))
     ]
+    
+    # Create display DataFrame with formatted columns
+    display_df = filtered_df.copy()
+    display_df['AccountEnabled'] = display_df['AccountEnabled'].map({True: 'Active', False: 'Disabled'})
+    display_df['MFAEnabled'] = display_df['MFAEnabled'].map({True: 'Enabled', False: 'Disabled'})
+    
+    # Rename columns for display
+    display_df = display_df.rename(columns={
+        'DisplayName': 'Display Name',
+        'UserPrincipalName': 'Email',
+        'AccountEnabled': 'Account Status',
+        'MFAEnabled': 'MFA Status',
+        'AuthMethods': 'Authentication Methods'
+    })
     
     # Display filtered data
     st.dataframe(
-        filtered_df.drop('Has MFA', axis=1),  # Hide the boolean column
+        display_df,
         hide_index=True,
         column_config={
             'Display Name': st.column_config.TextColumn('Display Name'),
