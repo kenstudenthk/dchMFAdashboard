@@ -3,7 +3,7 @@
 import streamlit as st
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 import plotly.express as px
 from collections import Counter
@@ -90,7 +90,7 @@ def poll_for_token(device_code):
             f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/token',
             data={
                 'grant_type': 'device_code',
-                'client_id': CLIENT_ID,  # Added this
+                'client_id': CLIENT_ID,
                 'code': device_code,
                 'resource': 'https://graph.microsoft.com'
             }
@@ -98,8 +98,13 @@ def poll_for_token(device_code):
         
         if response.status_code == 200:
             return response.json()
-        st.error(f"Token error: {response.text}")
+        
+        # Don't show error for authorization_pending
+        error_data = response.json()
+        if error_data.get('error') != 'authorization_pending':
+            st.error(f"Token error: {response.text}")
         return None
+        
     except Exception as e:
         st.error(f"Error: {str(e)}")
         return None
@@ -145,16 +150,16 @@ def render_login():
                 """)
 
                 with st.spinner("Waiting for login completion..."):
-                    interval = int(device_code_response.get('interval', 5))  # Convert to int
-                    expires_in = int(device_code_response.get('expires_in', 900))  # Convert to int
+                    interval = int(device_code_response.get('interval', 5))
+                    expires_in = int(device_code_response.get('expires_in', 900))
                     start_time = time.time()
                     
                     while time.time() - start_time < expires_in:
                         token_response = poll_for_token(st.session_state.device_code)
                         if token_response:
                             st.session_state.token = token_response['access_token']
-                            expires_in = int(token_response['expires_in'])  # Convert to int
-                            st.session_state.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)  # Changed this line
+                            expires_in = int(token_response['expires_in'])
+                            st.session_state.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
                             st.success("Successfully logged in!")
                             st.rerun()
                             break
