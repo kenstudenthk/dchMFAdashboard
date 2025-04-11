@@ -102,31 +102,15 @@ def load_mfa_data():
     except Exception as e:
         st.error(f"Error loading MFA data: {str(e)}")
         return None
-
-
-def poll_for_token(device_code):
-    """Poll for token using device code"""
-    payload = {
-        'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
-        'client_id': 'de8bc8b5-d9f9-48b1-a8ad-b748da725064',
-        'device_code': device_code
-    }
-    
-    response = requests.post(
-        'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-        data=payload
-    )
-    
-    if response.status_code == 200:
-        return response.json()
-    return None
-
-def get_device_code():
-    """Get device code for authentication"""
+def get_device_code_with_tenant():
+    """Get device code using tenant ID"""
     try:
+        tenant_id = "your_tenant_id"  # Replace with your tenant ID
         response = requests.post(
-            'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
-            data={'client_id': 'de8bc8b5-d9f9-48b1-a8ad-b748da725064'}
+            f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/devicecode',
+            data={
+                'scope': 'https://graph.microsoft.com/User.Read.All https://graph.microsoft.com/UserAuthenticationMethod.Read.All'
+            }
         )
         
         if response.status_code == 200:
@@ -137,12 +121,80 @@ def get_device_code():
         st.error(f"Error: {str(e)}")
         return None
 
+def get_device_code_with_client():
+    """Get device code using client ID"""
+    try:
+        client_id = "your_client_id"  # Replace with your client ID
+        response = requests.post(
+            'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode',
+            data={
+                'client_id': client_id,
+                'scope': 'https://graph.microsoft.com/User.Read.All https://graph.microsoft.com/UserAuthenticationMethod.Read.All'
+            }
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        return None
+            
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        return None
+
+def poll_for_token(device_code, use_tenant=True):
+    """Poll for token after user logs in"""
+    try:
+        tenant_id = "your_tenant_id"  # Replace with your tenant ID
+        client_id = "your_client_id"  # Replace with your client ID
+        
+        # Choose URL based on whether using tenant or client ID
+        token_url = f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token' if use_tenant else 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+        
+        data = {
+            'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+            'device_code': device_code
+        }
+        
+        # Add client_id if not using tenant
+        if not use_tenant:
+            data['client_id'] = client_id
+            
+        response = requests.post(token_url, data=data)
+        
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        return None
+
+def check_token_valid():
+    if 'token' not in st.session_state:
+        return False
+    if 'token_expiry' not in st.session_state:
+        return False
+    
+    now = datetime.now(timezone.utc)
+    if now >= st.session_state.token_expiry:
+        return False
+    
+    return True
+
 def render_login():
     st.title("🔐 Device Login")
 
+    auth_type = st.radio(
+        "Authentication Type",
+        ["Tenant ID", "Client ID"],
+        horizontal=True
+    )
+
     if st.button("Get Authentication Code", type="primary"):
         with st.spinner("Getting authentication code..."):
-            device_code_response = get_device_code()
+            if auth_type == "Tenant ID":
+                device_code_response = get_device_code_with_tenant()
+            else:
+                device_code_response = get_device_code_with_client()
             
             if device_code_response:
                 st.session_state.user_code = device_code_response['user_code']
@@ -160,62 +212,50 @@ def render_login():
                 2. Copy this authentication code:
                 """)
                 
-                # Display the generated code prominently
                 st.code(st.session_state.user_code, language=None)
                 
                 st.markdown("""
                 3. Paste the code and sign in with your Microsoft account
                 """)
+
+                with st.spinner("Waiting for login completion..."):
+                    interval = device_code_response.get('interval', 5)
+                    expires_in = device_code_response.get('expires_in', 900)
+                    start_time = time.time()
+                    
+                    while time.time() - start_time < expires_in:
+                        token_response = poll_for_token(
+                            st.session_state.device_code, 
+                            use_tenant=(auth_type == "Tenant ID")
+                        )
+                        if token_response:
+                            st.session_state.token = token_response['access_token']
+                            expires_in = token_response['expires_in']
+                            st.session_state.token_expiry = datetime.now(timezone.utc).timestamp() + expires_in
+                            st.success("Successfully logged in!")
+                            st.rerun()
+                            break
+                        time.sleep(interval)
             else:
                 st.error("Failed to get authentication code. Please try again.")
 
-
-
-def render_dashboard(df):
-    """Render dashboard with MFA data"""
-    st.title("📊 MFA Status Dashboard")
+def render_dashboard():
+    st.title("📊 Microsoft Graph Dashboard")
+    st.write("Welcome! You're successfully logged in.")
     
-    if st.button("🔄 Refresh Data"):
+    if st.button("Logout"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
-    
-    if st.button("🚪 Logout"):
-        logout()
-        st.rerun()
-    
-    total_users = len(df)
-    mfa_enabled = df['MFAEnabled'].sum()
-    mfa_percentage = (mfa_enabled / total_users) * 100 if total_users > 0 else 0
-    
-    # Summary metrics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Users", total_users)
-    with col2:
-        st.metric("MFA Enabled", mfa_enabled)
-    with col3:
-        st.metric("MFA Coverage", f"{mfa_percentage:.1f}%")
-    
-    # MFA Status Chart
-    fig = px.pie(
-        names=['MFA Enabled', 'MFA Disabled'],
-        values=[mfa_enabled, total_users - mfa_enabled],
-        title="MFA Status Distribution"
-    )
-    st.plotly_chart(fig)
-    
-    # User table
-    st.subheader("User Details")
-    st.dataframe(df)
 
 def main():
-    """Main application"""
-    if not check_auth():
+    if 'token' not in st.session_state:
+        st.session_state.token = None
+    
+    if not check_token_valid():
         render_login()
     else:
-        df = load_mfa_data()
-        if df is not None:
-            render_dashboard(df)
-
+        render_dashboard()
 
 if __name__ == "__main__":
-    render_login()
+    main()
