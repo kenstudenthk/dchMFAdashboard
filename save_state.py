@@ -4,13 +4,14 @@
 CLIENT_ID = "b3eee569-7d4b-4976-9af4-9f683063448f"
 TENANT_ID = "common"
 
-# Required Microsoft Graph API Scopes - simplified and essential scopes
+# Required Microsoft Graph API Scopes
 SCOPES = [
-    'https://graph.microsoft.com/User.Read',
-    'https://graph.microsoft.com/User.Read.All',
-    'https://graph.microsoft.com/Directory.Read.All',
-    'https://graph.microsoft.com/UserAuthenticationMethod.Read.All',
-    'https://graph.microsoft.com/AuditLog.Read.All'
+    'User.Read',
+    'User.Read.All',
+    'Directory.Read.All',
+    'UserAuthenticationMethod.Read.All',
+    'AuditLog.Read.All',
+    'offline_access'  # Add this for refresh tokens
 ]
 
 # Graph API endpoint

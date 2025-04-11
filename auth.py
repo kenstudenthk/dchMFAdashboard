@@ -17,22 +17,12 @@ class GraphAuth:
     def get_device_flow(self):
         """Start device code flow authentication"""
         try:
-            # Initialize device flow with proper scopes
-            flow = self.app.initiate_device_flow(
-                scopes=SCOPES,
-                post_logon_redirect_uri=None,  # No redirect needed for device flow
-                timeout=None  # Let the process_device_flow handle timeout
-            )
+            # Simple device flow initialization with just scopes
+            flow = self.app.initiate_device_flow(scopes=SCOPES)
             
             if "user_code" not in flow:
                 error_msg = flow.get('error_description', 'Unknown error in device flow')
                 raise ValueError(f"Could not initiate device flow: {error_msg}")
-                
-            if "message" not in flow:
-                flow["message"] = (
-                    f"To sign in, use a web browser to open {flow['verification_uri']} "
-                    f"and enter the code {flow['user_code']} to authenticate."
-                )
                 
             return flow
             
