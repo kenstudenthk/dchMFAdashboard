@@ -167,6 +167,65 @@ def render_login():
             else:
                 st.error("Failed to get authentication code. Please try again.")
                 
+
+        
+def get_users_data(access_token):
+    """Get users data with MFA and license information"""
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json'
+    }
+    
+    users_data = []
+    
+    # Get all users
+    response = requests.get(
+        'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity',
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        users = response.json().get('value', [])
+        
+        for user in users:
+            user_id = user['id']
+            
+            # Get MFA status
+            mfa_response = requests.get(
+                f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
+                headers=headers
+            )
+            mfa_enabled = False if mfa_response.status_code == 200 else None
+            
+            # Get license details
+            license_response = requests.get(
+                f'https://graph.microsoft.com/v1.0/users/{user_id}/licenseDetails',
+                headers=headers
+            )
+            
+            licenses = []
+            if license_response.status_code == 200:
+                for license in license_response.json().get('value', []):
+                    sku = license.get('skuPartNumber', '')
+                    if 'ENTERPRISEPACK' in sku:
+                        licenses.append('Office365 E3')
+                    elif 'STANDARDPACK' in sku:
+                        licenses.append('Office365 E1')
+            
+            # Only include users with E1 or E3 license and MFA disabled
+            if licenses and not mfa_enabled:
+                users_data.append({
+                    'Name': user.get('displayName', ''),
+                    'Mail': user.get('mail', ''),
+                    'UPN': user.get('userPrincipalName', ''),
+                    'Licenses': ', '.join(licenses),
+                    'Creation Date': user.get('createdDateTime', ''),
+                    'MFA Status': 'Disabled',
+                    'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', '')
+                })
+    
+    return pd.DataFrame(users_data)
+
 def render_dashboard():
     st.title("📊 Microsoft Graph Dashboard")
     st.write("Welcome! You're successfully logged in.")
@@ -178,12 +237,16 @@ def render_dashboard():
 
 def main():
     if 'token' not in st.session_state:
-        st.session_state.token = None
-    
-    if not check_token_valid():
-        render_login()
+        st.title("🔐 Microsoft Graph Authentication")
+        
+        if st.button("Login with Microsoft"):
+            # Implement device code flow here
+            # (Use the login code from previous response)
+            pass
     else:
-        render_dashboard()
+        # Get and display data
+        df = get_users_data(st.session_state.token)
+        render_dashboard(df)
 
 if __name__ == "__main__":
     main()
