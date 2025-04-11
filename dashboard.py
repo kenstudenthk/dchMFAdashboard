@@ -12,7 +12,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 def load_mfa_data():
     """Load MFA status data from Graph API"""
     try:
@@ -129,8 +128,15 @@ def render_dashboard(df):
     st.caption(f"Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 def main():
+    # Initialize session state
+    if 'token' not in st.session_state:
+        st.session_state.token = None
+    
     if not check_auth():
         render_login()
+        # Check if we just logged in
+        if st.session_state.token:
+            st.rerun()
     else:
         st.title("🔐 MFA Status Report")
         
