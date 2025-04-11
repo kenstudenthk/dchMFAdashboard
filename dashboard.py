@@ -14,20 +14,14 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize session state
-if 'token' not in st.session_state:
-    st.session_state.token = None
-if 'data' not in st.session_state:
-    st.session_state.data = []
-if 'processing' not in st.session_state:
-    st.session_state.processing = False
-if 'processed_count' not in st.session_state:
-    st.session_state.processed_count = 0
-
-# Increase server timeout (in seconds)
-if not st.session_state.get('initialized'):
-    st.cache_data.clear()
+# Initialize all session state variables in one place
+if not st.session_state.get('initialized', False):
     st.session_state.initialized = True
+    st.session_state.token = None
+    st.session_state.data = []
+    st.session_state.processing = False
+    st.session_state.processed_count = 0
+    st.cache_data.clear()
     
 # Disable automatic refresh
 st.cache_resource(ttl=3600)  # Cache resources for 1 hour
@@ -394,6 +388,3 @@ else:
         if st.button("Logout"):
             st.session_state.token = None
             st.rerun()
-
-if __name__ == "__main__":
-    main()
