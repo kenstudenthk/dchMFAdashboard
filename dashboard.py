@@ -179,11 +179,7 @@ def process_users_chunk(users_chunk, token, headers):
                 mfa_data2 = mfa_response2.json()
                 if "perUserMfaState" in mfa_data2:
                     mfa_status = mfa_data2["perUserMfaState"]
-        
-        # Debug: Print MFA status for first user
-        if len(chunk_data) == 0:
-            st.write("Debug - User:", user.get('userPrincipalName'))
-            st.write("Debug - Final MFA Status:", mfa_status)
+
         
         # Get license details
         license_response = requests.get(
