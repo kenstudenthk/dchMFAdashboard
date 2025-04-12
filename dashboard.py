@@ -114,62 +114,6 @@ def poll_for_token(device_code):
         st.error(f"Error: {str(e)}")
         return None
 
-@st.cache_data(ttl=3600)
-def process_users_batch(token, users_batch):
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-    
-    batch_data = []
-    for user in users_batch:
-        if not user.get('accountEnabled', False):
-            continue
-        
-        user_id = user['id']
-        
-        # Get MFA status
-        mfa_response = requests.get(
-            f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
-            headers=headers
-        )
-        
-        # Get license details
-        license_response = requests.get(
-            f'https://graph.microsoft.com/v1.0/users/{user_id}/licenseDetails',
-            headers=headers
-        )
-        
-        if license_response.status_code != 200:
-            continue
-        
-        licenses = []
-        has_target_license = False
-        
-        for license in license_response.json().get('value', []):
-            sku = license.get('skuPartNumber', '')
-            if 'ENTERPRISEPACK' in sku:
-                licenses.append('Office365 E3')
-                has_target_license = True
-            elif 'STANDARDPACK' in sku:
-                licenses.append('Office365 E1')
-                has_target_license = True
-        
-        mfa_enabled = True if mfa_response.status_code == 200 and mfa_response.json() else False
-        
-        if has_target_license and not mfa_enabled:
-            batch_data.append({
-                'Name': user.get('displayName', ''),
-                'Mail': user.get('mail', ''),
-                'UPN': user.get('userPrincipalName', ''),
-                'Licenses': ', '.join(licenses),
-                'Creation Date': user.get('createdDateTime', ''),
-                'MFA Status': 'Disabled' if not mfa_enabled else 'Enabled',
-                'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never')
-            })
-    
-    return batch_data
-
 def display_results(df):
     if df is not None and not df.empty:
         st.write(f"Total users found: {len(df)}")
