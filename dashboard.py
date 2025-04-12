@@ -273,6 +273,145 @@ def get_all_user_data(token):
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         return None
+
+# Add this function for getting detailed user information
+# Add this function for getting detailed user information
+def get_user_details(email, token):
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    
+    try:
+        # Get user basic info
+        user_response = requests.get(
+            f'https://graph.microsoft.com/beta/users/{email}',
+            headers=headers
+        )
+        
+        if user_response.status_code != 200:
+            st.error(f"User not found: {email}")
+            return None
+            
+        user_data = user_response.json()
+        
+        # Get MFA status
+        mfa_response = requests.get(
+            f'https://graph.microsoft.com/beta/users/{user_data["id"]}/authentication/strongAuthenticationRequirements',
+            headers=headers
+        )
+        
+        mfa_status = 'Disabled'
+        if mfa_response.status_code == 200:
+            mfa_data = mfa_response.json()
+            if "value" in mfa_data and len(mfa_data["value"]) > 0:
+                mfa_status = mfa_data["value"][0]["perUserMfaState"]
+        
+        # Get license details
+        license_response = requests.get(
+            f'https://graph.microsoft.com/v1.0/users/{user_data["id"]}/licenseDetails',
+            headers=headers
+        )
+        
+        licenses = []
+        if license_response.status_code == 200:
+            for license in license_response.json().get('value', []):
+                sku = license.get('skuPartNumber', '')
+                if 'ENTERPRISEPACK' in sku:
+                    licenses.append('Office365 E3')
+                elif 'STANDARDPACK' in sku:
+                    licenses.append('Office365 E1')
+        
+        # Compile detailed user info
+        user_details = {
+            'Display Name': user_data.get('displayName', ''),
+            'Email': user_data.get('userPrincipalName', ''),
+            'Mail': user_data.get('mail', ''),
+            'Job Title': user_data.get('jobTitle', ''),
+            'Department': user_data.get('department', ''),
+            'Office Location': user_data.get('officeLocation', ''),
+            'Business Phone': user_data.get('businessPhones', [''])[0] if user_data.get('businessPhones') else '',
+            'Mobile Phone': user_data.get('mobilePhone', ''),
+            'Account Status': 'Active' if user_data.get('accountEnabled', False) else 'Disabled',
+            'MFA Status': mfa_status,
+            'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
+            'Last Sign In': user_data.get('signInActivity', {}).get('lastSignInDateTime', 'Never'),
+            'Created Date': user_data.get('createdDateTime', ''),
+            'Account Type': 'Cloud' if user_data.get('onPremisesSyncEnabled') is None else 'Synced from On-Premises'
+        }
+        
+        return user_details
+        
+    except Exception as e:
+        st.error(f"Error fetching user details: {str(e)}")
+        return None
+
+# In your main app section, replace the else block after checking token with:
+    else:
+    # Add a container for the top right search
+        with st.container():
+            col1, col2, col3 = st.columns([6, 2, 2])
+            with col1:
+                st.write("Currently logged in")
+            with col2:
+                search_email = st.text_input("Search by Email", key="search_email")
+            with col3:
+                if st.button("Search User"):
+                    if search_email:
+                        with st.spinner("Fetching user details..."):
+                            user_details = get_user_details(search_email, st.session_state.token)
+                            if user_details:
+                                # Create a popup dialog with user details
+                                with st.expander("User Details", expanded=True):
+                                    st.write("### User Information")
+                                    for key, value in user_details.items():
+                                        col1, col2 = st.columns([1, 3])
+                                        with col1:
+                                            st.write(f"**{key}:**")
+                                        with col2:
+                                            st.write(value)
+    
+    # Your existing code for Get All Users and Logout buttons
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Get All Users"):
+            df = get_all_user_data(st.session_state.token)
+            if df is not None:
+                st.write("### All Users Report")
+                st.write(f"Total Users: {len(df)}")
+                st.dataframe(df)
+                
+                # Show filtered report
+                st.write("### Filtered Report")
+                filtered_df = filter_data(df)
+                st.write(f"Filtered Users: {len(filtered_df)}")
+                st.dataframe(filtered_df)
+                
+                # Export options
+                st.write("### Export Options")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    if st.button("Export All Users (Excel)"):
+                        df.to_excel("all_users_report.xlsx", index=False)
+                        st.success("Exported all users to Excel!")
+                with col2:
+                    if st.button("Export All Users (CSV)"):
+                        df.to_csv("all_users_report.csv", index=False)
+                        st.success("Exported all users to CSV!")
+                with col3:
+                    if st.button("Export Filtered Users (Excel)"):
+                        filtered_df.to_excel("filtered_users_report.xlsx", index=False)
+                        st.success("Exported filtered users to Excel!")
+                with col4:
+                    if st.button("Export Filtered Users (CSV)"):
+                        filtered_df.to_csv("filtered_users_report.csv", index=False)
+                        st.success("Exported filtered users to CSV!")
+    
+    with col2:
+        if st.button("Logout"):
+            st.session_state.token = None
+            st.rerun()
     
 def filter_data(df):
     st.write("### Filter Users")
