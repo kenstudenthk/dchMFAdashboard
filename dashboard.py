@@ -243,12 +243,39 @@ def get_all_user_data(token):
                 # Process MFA status
                 mfa_status = 'Unknown'
                 if mfa_response.status_code == 200:
-                    mfa_data = mfa_response.json()
-                    # Get perUserMfaState
-                    mfa_status = mfa_data.get('perUserMfaState', 'Unknown')
-                    if not mfa_status or mfa_status == 'Unknown':
-                        # Fallback to checking if MFA is required
-                        mfa_status = 'Enabled' if bool(mfa_data) else 'Disabled'
+                    try:
+                        mfa_data = mfa_response.json()
+                        
+                        # Debug line to see raw response
+                        # st.write(f"MFA Response for {upn}:", mfa_data)
+
+                        # According to the PowerShell command:
+                        # $mfaStatus = Invoke-MgGraphRequest -Method GET -Uri "/beta/users/$UserPrincipalname/authentication/requirements"
+                        
+                        # Check if we have requirements data
+                        requirements = mfa_data.get('requirements', [])
+                        if requirements:
+                            for req in requirements:
+                                # Look for MFA requirement
+                                if req.get('authenticationMethodsPolicy', {}).get('mfa', {}).get('state'):
+                                    mfa_state = req['authenticationMethodsPolicy']['mfa']['state']
+                                    if mfa_state.lower() == 'enabled':
+                                        mfa_status = 'Enabled'
+                                    elif mfa_state.lower() == 'enforced':
+                                        mfa_status = 'Enforced'
+                        else:
+                            mfa_status = 'Disabled'
+
+                        # Try to get perUserMfaState if available
+                        per_user_mfa = mfa_data.get('perUserMfaState')
+                        if per_user_mfa:
+                            mfa_status = per_user_mfa
+                        
+                    except Exception as e:
+                        st.error(f"Error processing MFA status for {user}: {str(e)}")
+                        mfa_status = 'Error'
+                else:
+                    st.warning(f"Failed to get MFA status for {user}: {mfa_response.status_code}")
                 
                 # Compile user data
                 users_data.append({
