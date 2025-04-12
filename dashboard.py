@@ -228,11 +228,15 @@ def get_all_user_data(token):
                 )
                 
                 # Process MFA status - directly get perUserMfaState
-                mfa_status = 'Unknown'
+                mfa_status = ''
                 if mfa_response.status_code == 200:
                     mfa_data = mfa_response.json()
+                    # For first user, let's see what we're getting
+                    if total_processed == 0:
+                        st.write("First user MFA response:", mfa_data)
+                    
                     # Get perUserMfaState directly from the root of the response
-                    mfa_status = mfa_data.get('perUserMfaState', 'Unknown')
+                    mfa_status = mfa_data.get('perUserMfaState', '')
                 
 
                 
