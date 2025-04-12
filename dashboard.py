@@ -527,6 +527,45 @@ else:
             st.session_state.token = None
             st.rerun()
             
+# Add this right after your st.title() or at the top of your main content
+st.write("---")  # Add a separator line
+
+# Create the search area
+search_col1, search_col2, search_col3 = st.columns([2, 2, 1])
+with search_col2:
+    search_email = st.text_input("Search User by Email", key="search_email", placeholder="Enter email address")
+with search_col3:
+    search_button = st.button("Search")
+
+# Add search functionality
+if search_button and search_email:
+    with st.spinner("Fetching user details..."):
+        user_details = get_user_details(search_email, st.session_state.token)
+        if user_details:
+            # Create a popup dialog with user details
+            with st.expander("User Details", expanded=True):
+                st.write("### User Information")
+                for key, value in user_details.items():
+                    col1, col2 = st.columns([1, 3])
+                    with col1:
+                        st.write(f"**{key}:**")
+                    with col2:
+                        st.write(value)
+
+st.write("---")  # Add a separator line
+
+# Then continue with your existing buttons
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("Get All Users"):
+        # Your existing get_all_user_data code...
+        pass
+
+with col2:
+    if st.button("Logout"):
+        st.session_state.token = None
+        st.rerun()
+
 def cleanup_cache():
     """Clean up cache when session ends"""
     st.cache_data.clear()
