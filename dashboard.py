@@ -484,87 +484,71 @@ if not st.session_state.token:
                         break
                     time.sleep(interval)
 else:
-    st.write("Currently logged in")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Get All Users"):
+    # Create the search area
+    st.write("---")
+    search_col1, search_col2, search_col3 = st.columns([2, 2, 1])
+    with search_col2:
+        search_email = st.text_input("Search User by Email", 
+                                    key="search_email", 
+                                    placeholder="Enter email address")
+    with search_col3:
+        search_button = st.button("Search", key="search_button")
+
+    # Add search functionality
+    if search_button and search_email:
+        with st.spinner("Fetching user details..."):
+            user_details = get_user_details(search_email, st.session_state.token)
+            if user_details:
+                with st.expander("User Details", expanded=True):
+                    st.write("### User Information")
+                    for key, value in user_details.items():
+                        col1, col2 = st.columns([1, 3])
+                        with col1:
+                            st.write(f"**{key}:**")
+                        with col2:
+                            st.write(value)
+
+    st.write("---")
+
+    # Action buttons
+    action_col1, action_col2 = st.columns(2)
+    with action_col1:
+        if st.button("Get All Users", key="get_users_button"):
             df = get_all_user_data(st.session_state.token)
             if df is not None:
                 st.write("### All Users Report")
                 st.write(f"Total Users: {len(df)}")
                 st.dataframe(df)
                 
-                # Show filtered report
                 st.write("### Filtered Report")
                 filtered_df = filter_data(df)
                 st.write(f"Filtered Users: {len(filtered_df)}")
                 st.dataframe(filtered_df)
                 
-                # Export options
                 st.write("### Export Options")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    if st.button("Export All Users (Excel)"):
+                export_col1, export_col2, export_col3, export_col4 = st.columns(4)
+                with export_col1:
+                    if st.button("Export All (Excel)", key="export_all_excel"):
                         df.to_excel("all_users_report.xlsx", index=False)
                         st.success("Exported all users to Excel!")
-                with col2:
-                    if st.button("Export All Users (CSV)"):
+                with export_col2:
+                    if st.button("Export All (CSV)", key="export_all_csv"):
                         df.to_csv("all_users_report.csv", index=False)
                         st.success("Exported all users to CSV!")
-                with col3:
-                    if st.button("Export Filtered Users (Excel)"):
+                with export_col3:
+                    if st.button("Export Filtered (Excel)", key="export_filtered_excel"):
                         filtered_df.to_excel("filtered_users_report.xlsx", index=False)
                         st.success("Exported filtered users to Excel!")
-                with col4:
-                    if st.button("Export Filtered Users (CSV)"):
+                with export_col4:
+                    if st.button("Export Filtered (CSV)", key="export_filtered_csv"):
                         filtered_df.to_csv("filtered_users_report.csv", index=False)
                         st.success("Exported filtered users to CSV!")
-    
-    with col2:
-        if st.button("Logout"):
+
+    with action_col2:
+        if st.button("Logout", key="logout_button"):
             st.session_state.token = None
             st.rerun()
-            
-# Add this right after your st.title() or at the top of your main content
-st.write("---")  # Add a separator line
 
-# Create the search area
-search_col1, search_col2, search_col3 = st.columns([2, 2, 1])
-with search_col2:
-    search_email = st.text_input("Search User by Email", key="search_email", placeholder="Enter email address")
-with search_col3:
-    search_button = st.button("Search")
-
-# Add search functionality
-if search_button and search_email:
-    with st.spinner("Fetching user details..."):
-        user_details = get_user_details(search_email, st.session_state.token)
-        if user_details:
-            # Create a popup dialog with user details
-            with st.expander("User Details", expanded=True):
-                st.write("### User Information")
-                for key, value in user_details.items():
-                    col1, col2 = st.columns([1, 3])
-                    with col1:
-                        st.write(f"**{key}:**")
-                    with col2:
-                        st.write(value)
-
-st.write("---")  # Add a separator line
-
-# Then continue with your existing buttons
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Get All Users"):
-        # Your existing get_all_user_data code...
-        pass
-
-with col2:
-    if st.button("Logout"):
-        st.session_state.token = None
-        st.rerun()
 
 def cleanup_cache():
     """Clean up cache when session ends"""
