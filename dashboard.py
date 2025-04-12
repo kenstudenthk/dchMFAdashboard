@@ -164,7 +164,7 @@ def process_users_chunk(users_chunk, token, headers):
         if mfa_response.status_code == 200:
             mfa_data = mfa_response.json()
             if "value" in mfa_data and len(mfa_data["value"]) > 0:
-                mfa_status = mfa_data["value"][0].get("perUserMfaState", "Disabled")
+                mfa_status = mfa_data["value"][0]["perUserMfaState"]
         
         # Get license details
         license_response = requests.get(
