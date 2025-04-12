@@ -150,21 +150,40 @@ def display_results(df):
                 filename = save_partial_results(df, "partial_results")
                 st.success(f"Partial results saved to {filename}!")
 
-@st.cache_data(ttl=21600, max_entries=100)  # Limit cache entries
+@st.cache_data(ttl=21600, max_entries=100)  # Limit cache entries@st.cache_data(ttl=21600)  # Cache data for 6 hours
 def process_users_chunk(users_chunk, token, headers):
     chunk_data = []
     for user in users_chunk:
-        # Get MFA status
+        # Try both MFA status endpoints
+        mfa_status = 'Disabled'  # Default status
+        
+        # Try first endpoint
         mfa_response = requests.get(
             f'https://graph.microsoft.com/beta/users/{user["id"]}/authentication/strongAuthenticationRequirements',
             headers=headers
         )
         
-        mfa_status = 'Disabled'
         if mfa_response.status_code == 200:
             mfa_data = mfa_response.json()
             if "value" in mfa_data and len(mfa_data["value"]) > 0:
                 mfa_status = mfa_data["value"][0]["perUserMfaState"]
+        
+        # If still Disabled, try second endpoint
+        if mfa_status == 'Disabled':
+            mfa_response2 = requests.get(
+                f'https://graph.microsoft.com/beta/users/{user["id"]}/authentication/requirements',
+                headers=headers
+            )
+            
+            if mfa_response2.status_code == 200:
+                mfa_data2 = mfa_response2.json()
+                if "perUserMfaState" in mfa_data2:
+                    mfa_status = mfa_data2["perUserMfaState"]
+        
+        # Debug: Print MFA status for first user
+        if len(chunk_data) == 0:
+            st.write("Debug - User:", user.get('userPrincipalName'))
+            st.write("Debug - Final MFA Status:", mfa_status)
         
         # Get license details
         license_response = requests.get(
@@ -195,12 +214,14 @@ def process_users_chunk(users_chunk, token, headers):
     return chunk_data
 
 def get_all_user_data(token):
+    # 设置请求头
     headers = {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json'
     }
     
     users_data = []
+    # 创建进度条和表格占位符
     progress_placeholder = st.empty()
     table_placeholder = st.empty()
     
