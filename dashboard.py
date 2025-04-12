@@ -16,10 +16,22 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+# Initialize session state variables
+if 'token' not in st.session_state:
+    st.session_state.token = None
 
+if 'data' not in st.session_state:
+    st.session_state.data = []
+
+if 'processing' not in st.session_state:
+    st.session_state.processing = False
+
+if 'processed_count' not in st.session_state:
+    st.session_state.processed_count = 0
 # Adjust cache duration to 6 hours
 @st.cache_resource(ttl=21600)  # 6 hours in seconds
 def init_session():
+    # 检查st.session_state中是否有initialized属性
     if not hasattr(st.session_state, 'initialized'):
         st.session_state.initialized = True
         st.session_state.token = None
