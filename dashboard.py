@@ -16,18 +16,23 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-# Initialize session state variables
-if 'token' not in st.session_state:
-    st.session_state.token = None
-
-if 'data' not in st.session_state:
-    st.session_state.data = []
-
-if 'processing' not in st.session_state:
-    st.session_state.processing = False
-
-if 'processed_count' not in st.session_state:
-    st.session_state.processed_count = 0
+# Initialize all session state variables at the start
+def init_session_state():
+    if 'token' not in st.session_state:
+        st.session_state.token = None
+    if 'data' not in st.session_state:
+        st.session_state.data = []
+    if 'processing' not in st.session_state:
+        st.session_state.processing = False
+    if 'processed_count' not in st.session_state:
+        st.session_state.processed_count = 0
+    if 'df' not in st.session_state:
+        st.session_state.df = None
+    if 'show_report' not in st.session_state:
+        st.session_state.show_report = False
+        
+# Call the initialization function at the start
+init_session_state()        
 # Adjust cache duration to 6 hours
 @st.cache_resource(ttl=21600)  # 6 hours in seconds
 def init_session():
@@ -459,31 +464,52 @@ def filter_data(df):
 # Main app
 st.title("Microsoft Graph User Report")
 
+# Initialize session state for device code flow
+if 'authentication_in_progress' not in st.session_state:
+    st.session_state.authentication_in_progress = False
+if 'device_code_response' not in st.session_state:
+    st.session_state.device_code_response = None
+
 if not st.session_state.token:
-    if st.button("Login to Microsoft"):
-        device_code_response = get_device_code()
-        if device_code_response:
-            st.markdown("""
-            ### Please follow these steps:
-            1. Go to: https://microsoft.com/devicelogin
-            2. Enter this code:
-            """)
-            st.code(device_code_response['user_code'])
+    if not st.session_state.authentication_in_progress:
+        if st.button("Login to Microsoft"):
+            st.session_state.device_code_response = get_device_code()
+            if st.session_state.device_code_response:
+                st.session_state.authentication_in_progress = True
+                st.rerun()
+    
+    if st.session_state.authentication_in_progress:
+        st.markdown("""
+        ### Please follow these steps:
+        1. Go to: https://microsoft.com/devicelogin
+        2. Enter this code:
+        """)
+        st.code(st.session_state.device_code_response['user_code'])
+        
+        with st.spinner("Waiting for authentication..."):
+            interval = int(st.session_state.device_code_response.get('interval', 5))
+            expires_in = int(st.session_state.device_code_response.get('expires_in', 900))
+            start_time = time.time()
             
-            with st.spinner("Waiting for authentication..."):
-                interval = int(device_code_response.get('interval', 5))
-                expires_in = int(device_code_response.get('expires_in', 900))
-                start_time = time.time()
-                
-                while time.time() - start_time < expires_in:
-                    token_response = poll_for_token(device_code_response['device_code'])
-                    if token_response:
-                        st.session_state.token = token_response['access_token']
-                        st.success("Successfully logged in!")
-                        st.rerun()
-                        break
-                    time.sleep(interval)
+            while time.time() - start_time < expires_in:
+                token_response = poll_for_token(st.session_state.device_code_response['device_code'])
+                if token_response:
+                    st.session_state.token = token_response['access_token']
+                    st.session_state.authentication_in_progress = False
+                    st.session_state.device_code_response = None
+                    st.success("Successfully logged in!")
+                    st.rerun()
+                    break
+                time.sleep(interval)
+            
+            # If we get here, authentication timed out
+            st.error("Authentication timed out. Please try again.")
+            st.session_state.authentication_in_progress = False
+            st.session_state.device_code_response = None
+            st.rerun()
+
 else:
+    # Your existing authenticated user code remains the same
     # Create two main containers
     search_container = st.container()
     report_container = st.container()
