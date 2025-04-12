@@ -244,7 +244,11 @@ def get_all_user_data(token):
                 mfa_status = 'Unknown'
                 if mfa_response.status_code == 200:
                     mfa_data = mfa_response.json()
-                    mfa_status = 'Disabled' if not bool(mfa_data) else 'Enabled'
+                    # Get perUserMfaState
+                    mfa_status = mfa_data.get('perUserMfaState', 'Unknown')
+                    if not mfa_status or mfa_status == 'Unknown':
+                        # Fallback to checking if MFA is required
+                        mfa_status = 'Enabled' if bool(mfa_data) else 'Disabled'
                 
                 # Compile user data
                 users_data.append({
@@ -297,8 +301,8 @@ def filter_data(df):
     with col2:
         mfa_status = st.multiselect(
             "MFA Status",
-            options=['Enabled', 'Disabled', 'Unknown'],
-            default=['Enabled', 'Disabled', 'Unknown']
+            options=sorted(df['MFA Status'].unique()),  # Dynamic options based on actual data
+            default=sorted(df['MFA Status'].unique())
         )
     
     with col3:
