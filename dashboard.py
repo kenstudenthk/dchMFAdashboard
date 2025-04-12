@@ -221,9 +221,18 @@ def get_all_user_data(token):
             for user in current_users:
                 user_id = user['id']
                 
-                # Get MFA status
+                # Try getting MFA status from multiple endpoints
+                mfa_status = 'Unknown'
+                
+                # Try first endpoint (authentication/requirements)
                 mfa_response = requests.get(
                     f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
+                    headers=headers
+                )
+                
+                # Try second endpoint (authentication/methods)
+                mfa_methods_response = requests.get(
+                    f'https://graph.microsoft.com/beta/users/{user_id}/authentication/methods',
                     headers=headers
                 )
                 
@@ -240,42 +249,44 @@ def get_all_user_data(token):
                         sku = license.get('skuPartNumber', '')
                         licenses.append(sku)
                 
-                # Process MFA status
-                mfa_status = 'Unknown'
-                if mfa_response.status_code == 200:
-                    try:
+                try:
+                    if mfa_response.status_code == 200:
                         mfa_data = mfa_response.json()
                         
-                        # Debug line to see raw response
-                        # st.write(f"MFA Response for {upn}:", mfa_data)
-
-                        # According to the PowerShell command:
-                        # $mfaStatus = Invoke-MgGraphRequest -Method GET -Uri "/beta/users/$UserPrincipalname/authentication/requirements"
-                        
-                        # Check if we have requirements data
-                        requirements = mfa_data.get('requirements', [])
-                        if requirements:
-                            for req in requirements:
-                                # Look for MFA requirement
-                                if req.get('authenticationMethodsPolicy', {}).get('mfa', {}).get('state'):
-                                    mfa_state = req['authenticationMethodsPolicy']['mfa']['state']
-                                    if mfa_state.lower() == 'enabled':
-                                        mfa_status = 'Enabled'
-                                    elif mfa_state.lower() == 'enforced':
-                                        mfa_status = 'Enforced'
-                        else:
-                            mfa_status = 'Disabled'
-
-                        # Try to get perUserMfaState if available
+                        # Try to get perUserMfaState
                         per_user_mfa = mfa_data.get('perUserMfaState')
                         if per_user_mfa:
                             mfa_status = per_user_mfa
-                        
-                    except Exception as e:
-                        st.error(f"Error processing MFA status for {user}: {str(e)}")
-                        mfa_status = 'Error'
-                else:
-                    st.warning(f"Failed to get MFA status for {user}: {mfa_response.status_code}")
+                        # If no perUserMfaState, check requirements
+                        elif bool(mfa_data):
+                            requirements = mfa_data.get('requirements', [])
+                            if requirements:
+                                for req in requirements:
+                                    if req.get('authenticationMethodsPolicy', {}).get('mfa', {}).get('state'):
+                                        mfa_state = req['authenticationMethodsPolicy']['mfa']['state']
+                                        mfa_status = mfa_state.capitalize()
+                            else:
+                                mfa_status = 'Enabled' if bool(mfa_data) else 'Disabled'
+                    
+                    # Check authentication methods as backup
+                    if mfa_methods_response.status_code == 200:
+                        methods_data = mfa_methods_response.json()
+                        if methods_data.get('value'):
+                            mfa_methods = [m.get('method') for m in methods_data['value']]
+                            if any(method in ['mfa', 'microsoftAuthenticator'] for method in mfa_methods):
+                                if mfa_status == 'Unknown':
+                                    mfa_status = 'Enabled'
+                    
+                    # Debug information
+                    debug_info = {
+                        'requirements_response': mfa_data if mfa_response.status_code == 200 else None,
+                        'methods_response': methods_data if mfa_methods_response.status_code == 200 else None
+                    }
+                    
+                except Exception as e:
+                    st.error(f"Error processing MFA status for {user['mail']}: {str(e)}")
+                    mfa_status = 'Error'
+                    debug_info = {'error': str(e)}
                 
                 # Compile user data
                 users_data.append({
