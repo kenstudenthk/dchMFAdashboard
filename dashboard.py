@@ -1,6 +1,7 @@
 # dashboard.py
 
 import streamlit as st
+from streamlit.runtime.caching import cache_data, cache_resource
 import requests
 import time
 from datetime import datetime, timezone, timedelta
@@ -8,11 +9,29 @@ import pandas as pd
 import plotly.express as px
 from collections import Counter
 
+
 # Configure Streamlit
 st.set_page_config(
     page_title="Microsoft Graph User Report",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
+
+# Adjust cache duration to 6 hours
+@st.cache_resource(ttl=21600)  # 6 hours in seconds
+def init_session():
+    if not hasattr(st.session_state, 'initialized'):
+        st.session_state.initialized = True
+        st.session_state.token = None
+        st.session_state.data = []
+        st.session_state.processing = False
+        st.session_state.processed_count = 0
+
+# Configure server settings
+if not st.session_state.get('server_config'):
+    st.session_state.server_config = True
+    st.cache_data.clear()
+    st.cache_resource.clear()
 
 # Initialize all session state variables in one place
 if not st.session_state.get('initialized', False):
@@ -21,10 +40,7 @@ if not st.session_state.get('initialized', False):
     st.session_state.data = []
     st.session_state.processing = False
     st.session_state.processed_count = 0
-    st.cache_data.clear()
-    
-# Disable automatic refresh
-st.cache_resource(ttl=3600)  # Cache resources for 1 hour
+    st.cache_data.clear()# Cache resources for 1 hour
 
 # Dashboard Functions
 TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  
@@ -114,20 +130,76 @@ def poll_for_token(device_code):
         st.error(f"Error: {str(e)}")
         return None
 
+# Add this function to save partial results
+def save_partial_results(df, filename_prefix):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{filename_prefix}_{timestamp}.xlsx"
+    df.to_excel(filename, index=False)
+    return filename
+
+# Modify the display_results function to include partial saves
 def display_results(df):
     if df is not None and not df.empty:
-        st.write(f"Total users found: {len(df)}")
+        st.write(f"Total users processed: {len(df)}")
         st.dataframe(df)
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("Export to Excel"):
-                df.to_excel("user_report.xlsx", index=False)
-                st.success("Exported to Excel!")
+                filename = save_partial_results(df, "user_report")
+                st.success(f"Exported to {filename}!")
         with col2:
             if st.button("Export to CSV"):
                 df.to_csv("user_report.csv", index=False)
                 st.success("Exported to CSV!")
+        with col3:
+            if st.button("Save Partial Results"):
+                filename = save_partial_results(df, "partial_results")
+                st.success(f"Partial results saved to {filename}!")
+
+@st.cache_data(ttl=21600)  # Cache data for 6 hours
+def process_users_chunk(users_chunk, token, headers):
+    chunk_data = []
+    for user in users_chunk:
+        # Get MFA status
+        mfa_response = requests.get(
+            f'https://graph.microsoft.com/beta/users/{user["id"]}/authentication/strongAuthenticationRequirements',
+            headers=headers
+        )
+        
+        mfa_status = 'Disabled'
+        if mfa_response.status_code == 200:
+            mfa_data = mfa_response.json()
+            if "value" in mfa_data and len(mfa_data["value"]) > 0:
+                mfa_status = mfa_data["value"][0].get("perUserMfaState", "Disabled")
+        
+        # Get license details
+        license_response = requests.get(
+            f'https://graph.microsoft.com/v1.0/users/{user["id"]}/licenseDetails',
+            headers=headers
+        )
+        
+        licenses = []
+        if license_response.status_code == 200:
+            for license in license_response.json().get('value', []):
+                sku = license.get('skuPartNumber', '')
+                if 'ENTERPRISEPACK' in sku:
+                    licenses.append('Office365 E3')
+                elif 'STANDARDPACK' in sku:
+                    licenses.append('Office365 E1')
+        
+        chunk_data.append({
+            'Name': user.get('displayName', ''),
+            'UserPrincipalName': user.get('userPrincipalName', ''),
+            'Mail': user.get('mail', ''),
+            'Account Status': 'Active' if user.get('accountEnabled', False) else 'Disabled',
+            'MFA Status': mfa_status,
+            'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
+            'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never'),
+            'Creation Date': user.get('createdDateTime', '')
+        })
+    
+    return chunk_data
 
 def get_all_user_data(token):
     headers = {
@@ -140,16 +212,8 @@ def get_all_user_data(token):
     table_placeholder = st.empty()
     
     try:
-        # Test the token
-        test_response = requests.get(
-            'https://graph.microsoft.com/beta/users?$top=1',  # Note: using beta endpoint
-            headers=headers
-        )
-        if test_response.status_code != 200:
-            st.error(f"API test failed. Status code: {test_response.status_code}")
-            return None
-
-        # Get all users with pagination
+        # Process users in chunks of 100
+        CHUNK_SIZE = 100
         next_link = 'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
         total_processed = 0
         
@@ -160,71 +224,21 @@ def get_all_user_data(token):
                 return None
 
             current_users = response.json().get('value', [])
-            progress_placeholder.write(f"Processing batch of {len(current_users)} users...")
             
-            for user in current_users:
-                # Get MFA status using authentication/requirements endpoint
-                mfa_response = requests.get(
-                    f'https://graph.microsoft.com/beta/users/{user["id"]}/authentication/requirements',
-                    headers=headers
-                )
+            # Process users in chunks
+            for i in range(0, len(current_users), CHUNK_SIZE):
+                chunk = current_users[i:i + CHUNK_SIZE]
+                chunk_data = process_users_chunk(chunk, token, headers)
+                users_data.extend(chunk_data)
                 
-            for user in current_users:
-                # Get MFA status using strongAuthenticationRequirements endpoint
-                mfa_response = requests.get(
-                    f'https://graph.microsoft.com/beta/users/{user["id"]}/authentication/strongAuthenticationRequirements',
-                    headers=headers
-                )
+                total_processed += len(chunk)
+                progress_placeholder.progress(min(total_processed / 13500, 1.0))  # Assuming 13500 total users
+                progress_placeholder.write(f"Processed {total_processed} users...")
                 
-                # Initialize MFA status
-                mfa_status = 'Disabled'  # Default status
-                
-                # Process MFA status
-                if mfa_response.status_code == 200:
-                    mfa_data = mfa_response.json()
-                    
-                    # Debug: Print MFA response for first user
-                    if total_processed == 0:
-                        st.write("First user MFA response:", mfa_data)
-                    
-                    # Check if there's any MFA requirement set
-                    if "value" in mfa_data and len(mfa_data["value"]) > 0:
-                        mfa_status = mfa_data["value"][0].get("perUserMfaState", "Disabled")
-                
-                # Get license details
-                license_response = requests.get(
-                    f'https://graph.microsoft.com/v1.0/users/{user["id"]}/licenseDetails',
-                    headers=headers
-                )
-                
-                # Process licenses
-                licenses = []
-                if license_response.status_code == 200:
-                    for license in license_response.json().get('value', []):
-                        sku = license.get('skuPartNumber', '')
-                        if 'ENTERPRISEPACK' in sku:
-                            licenses.append('Office365 E3')
-                        elif 'STANDARDPACK' in sku:
-                            licenses.append('Office365 E1')
-                
-                # Compile user data
-                users_data.append({
-                    'Name': user.get('displayName', ''),
-                    'UserPrincipalName': user.get('userPrincipalName', ''),
-                    'Mail': user.get('mail', ''),
-                    'Account Status': 'Active' if user.get('accountEnabled', False) else 'Disabled',
-                    'MFA Status': mfa_status,
-                    'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
-                    'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never'),
-                    'Creation Date': user.get('createdDateTime', '')
-                })
-                
-                total_processed += 1
-                if total_processed % 50 == 0:
-                    progress_placeholder.write(f"Processed {total_processed} users...")
-                    if users_data:
-                        df = pd.DataFrame(users_data)
-                        table_placeholder.dataframe(df)
+                # Update display every 500 users
+                if total_processed % 500 == 0:
+                    temp_df = pd.DataFrame(users_data)
+                    table_placeholder.dataframe(temp_df)
             
             next_link = response.json().get('@odata.nextLink')
         
@@ -235,9 +249,11 @@ def get_all_user_data(token):
             return None
         
         df = pd.DataFrame(users_data)
-        # Convert datetime columns
         df['Creation Date'] = pd.to_datetime(df['Creation Date']).dt.strftime('%Y-%m-%d %H:%M:%S')
         df['Last Interactive SignIn'] = pd.to_datetime(df['Last Interactive SignIn']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Cache the final dataframe
+        st.session_state.data = df
         return df
         
     except Exception as e:
