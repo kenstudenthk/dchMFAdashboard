@@ -142,7 +142,7 @@ def get_all_user_data(token):
     try:
         # Test the token
         test_response = requests.get(
-            'https://graph.microsoft.com/v1.0/users?$top=1',
+            'https://graph.microsoft.com/beta/users?$top=1',  # Note: using beta endpoint
             headers=headers
         )
         if test_response.status_code != 200:
@@ -150,7 +150,7 @@ def get_all_user_data(token):
             return None
 
         # Get all users with pagination
-        next_link = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
+        next_link = 'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
         total_processed = 0
         
         while next_link:
@@ -163,30 +163,29 @@ def get_all_user_data(token):
             progress_placeholder.write(f"Processing batch of {len(current_users)} users...")
             
             for user in current_users:
-                user_id = user['id']
-                
                 # Get MFA status using authentication/requirements endpoint
                 mfa_response = requests.get(
-                    f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
+                    f'https://graph.microsoft.com/beta/users/{user["id"]}/authentication/requirements',
                     headers=headers
                 )
                 
-                # Process MFA status - directly get perUserMfaState
-                mfa_status = ''
+                # Initialize MFA status
+                mfa_status = 'Unknown'  # Default status
+                
+                # Process MFA status
                 if mfa_response.status_code == 200:
                     mfa_data = mfa_response.json()
-                    # For first user, let's see what we're getting
+                    
+                    # Debug: Print MFA response for first user
                     if total_processed == 0:
                         st.write("First user MFA response:", mfa_data)
                     
-                    # Get perUserMfaState directly from the root of the response
-                    mfa_status = mfa_data.get('perUserMfaState', '')
-                
-
+                    # Get perUserMfaState
+                    mfa_status = mfa_data.get('perUserMfaState', 'Unknown')
                 
                 # Get license details
                 license_response = requests.get(
-                    f'https://graph.microsoft.com/v1.0/users/{user_id}/licenseDetails',
+                    f'https://graph.microsoft.com/v1.0/users/{user["id"]}/licenseDetails',
                     headers=headers
                 )
                 
@@ -195,7 +194,10 @@ def get_all_user_data(token):
                 if license_response.status_code == 200:
                     for license in license_response.json().get('value', []):
                         sku = license.get('skuPartNumber', '')
-                        licenses.append(sku)
+                        if 'ENTERPRISEPACK' in sku:
+                            licenses.append('Office365 E3')
+                        elif 'STANDARDPACK' in sku:
+                            licenses.append('Office365 E1')
                 
                 # Compile user data
                 users_data.append({
@@ -203,7 +205,7 @@ def get_all_user_data(token):
                     'UserPrincipalName': user.get('userPrincipalName', ''),
                     'Mail': user.get('mail', ''),
                     'Account Status': 'Active' if user.get('accountEnabled', False) else 'Disabled',
-                    'MFA Status': mfa_status,  # This should now show Enabled/Disabled/Enforced
+                    'MFA Status': mfa_status,
                     'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
                     'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never'),
                     'Creation Date': user.get('createdDateTime', '')
@@ -233,7 +235,7 @@ def get_all_user_data(token):
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         return None
-
+    
 def filter_data(df):
     st.write("### Filter Users")
     col1, col2, col3 = st.columns(3)
