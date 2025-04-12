@@ -169,8 +169,15 @@ def get_all_user_data(token):
                     headers=headers
                 )
                 
+            for user in current_users:
+                # Get MFA status using strongAuthenticationRequirements endpoint
+                mfa_response = requests.get(
+                    f'https://graph.microsoft.com/beta/users/{user["id"]}/authentication/strongAuthenticationRequirements',
+                    headers=headers
+                )
+                
                 # Initialize MFA status
-                mfa_status = 'Unknown'  # Default status
+                mfa_status = 'Disabled'  # Default status
                 
                 # Process MFA status
                 if mfa_response.status_code == 200:
@@ -180,8 +187,9 @@ def get_all_user_data(token):
                     if total_processed == 0:
                         st.write("First user MFA response:", mfa_data)
                     
-                    # Get perUserMfaState
-                    mfa_status = mfa_data.get('perUserMfaState', 'Unknown')
+                    # Check if there's any MFA requirement set
+                    if "value" in mfa_data and len(mfa_data["value"]) > 0:
+                        mfa_status = mfa_data["value"][0].get("perUserMfaState", "Disabled")
                 
                 # Get license details
                 license_response = requests.get(
