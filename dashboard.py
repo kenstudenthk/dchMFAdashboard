@@ -221,20 +221,20 @@ def get_all_user_data(token):
             for user in current_users:
                 user_id = user['id']
                 
-                # Try getting MFA status from multiple endpoints
-                mfa_status = 'Unknown'
-                
-                # Try first endpoint (authentication/requirements)
+                # Get MFA status using authentication/requirements endpoint
                 mfa_response = requests.get(
                     f'https://graph.microsoft.com/beta/users/{user_id}/authentication/requirements',
                     headers=headers
                 )
                 
-                # Try second endpoint (authentication/methods)
-                mfa_methods_response = requests.get(
-                    f'https://graph.microsoft.com/beta/users/{user_id}/authentication/methods',
-                    headers=headers
-                )
+                # Process MFA status - directly get perUserMfaState
+                mfa_status = 'Unknown'
+                if mfa_response.status_code == 200:
+                    mfa_data = mfa_response.json()
+                    # Get perUserMfaState directly from the root of the response
+                    mfa_status = mfa_data.get('perUserMfaState', 'Unknown')
+                
+
                 
                 # Get license details
                 license_response = requests.get(
@@ -249,52 +249,13 @@ def get_all_user_data(token):
                         sku = license.get('skuPartNumber', '')
                         licenses.append(sku)
                 
-                try:
-                    if mfa_response.status_code == 200:
-                        mfa_data = mfa_response.json()
-                        
-                        # Try to get perUserMfaState
-                        per_user_mfa = mfa_data.get('perUserMfaState')
-                        if per_user_mfa:
-                            mfa_status = per_user_mfa
-                        # If no perUserMfaState, check requirements
-                        elif bool(mfa_data):
-                            requirements = mfa_data.get('requirements', [])
-                            if requirements:
-                                for req in requirements:
-                                    if req.get('authenticationMethodsPolicy', {}).get('mfa', {}).get('state'):
-                                        mfa_state = req['authenticationMethodsPolicy']['mfa']['state']
-                                        mfa_status = mfa_state.capitalize()
-                            else:
-                                mfa_status = 'Enabled' if bool(mfa_data) else 'Disabled'
-                    
-                    # Check authentication methods as backup
-                    if mfa_methods_response.status_code == 200:
-                        methods_data = mfa_methods_response.json()
-                        if methods_data.get('value'):
-                            mfa_methods = [m.get('method') for m in methods_data['value']]
-                            if any(method in ['mfa', 'microsoftAuthenticator'] for method in mfa_methods):
-                                if mfa_status == 'Unknown':
-                                    mfa_status = 'Enabled'
-                    
-                    # Debug information
-                    debug_info = {
-                        'requirements_response': mfa_data if mfa_response.status_code == 200 else None,
-                        'methods_response': methods_data if mfa_methods_response.status_code == 200 else None
-                    }
-                    
-                except Exception as e:
-                    st.error(f"Error processing MFA status for {user['mail']}: {str(e)}")
-                    mfa_status = 'Error'
-                    debug_info = {'error': str(e)}
-                
                 # Compile user data
                 users_data.append({
                     'Name': user.get('displayName', ''),
                     'UserPrincipalName': user.get('userPrincipalName', ''),
                     'Mail': user.get('mail', ''),
                     'Account Status': 'Active' if user.get('accountEnabled', False) else 'Disabled',
-                    'MFA Status': mfa_status,
+                    'MFA Status': mfa_status,  # This should now show Enabled/Disabled/Enforced
                     'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
                     'Last Interactive SignIn': user.get('signInActivity', {}).get('lastSignInDateTime', 'Never'),
                     'Creation Date': user.get('createdDateTime', '')
