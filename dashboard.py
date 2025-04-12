@@ -32,20 +32,13 @@ if not st.session_state.get('server_config'):
     st.session_state.server_config = True
     st.cache_data.clear()
     st.cache_resource.clear()
-
-# Initialize all session state variables in one place
-if not st.session_state.get('initialized', False):
-    st.session_state.initialized = True
-    st.session_state.token = None
-    st.session_state.data = []
-    st.session_state.processing = False
-    st.session_state.processed_count = 0
-    st.cache_data.clear()# Cache resources for 1 hour
-
 # Dashboard Functions
+# Configuration
 TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  
 CLIENT_ID = "1b730954-1685-4b74-9bfd-dac224a7b894"
-BATCH_SIZE = 500
+CHUNK_SIZE = 100
+DISPLAY_UPDATE_FREQUENCY = 500
+TOTAL_USERS_ESTIMATE = 13500
 # Authentication Functions
 def make_graph_request(endpoint: str, token: str) -> dict:
     """Make a request to Microsoft Graph API with error handling"""
@@ -157,7 +150,7 @@ def display_results(df):
                 filename = save_partial_results(df, "partial_results")
                 st.success(f"Partial results saved to {filename}!")
 
-@st.cache_data(ttl=21600)  # Cache data for 6 hours
+@st.cache_data(ttl=21600, max_entries=100)  # Limit cache entries
 def process_users_chunk(users_chunk, token, headers):
     chunk_data = []
     for user in users_chunk:
@@ -365,3 +358,15 @@ else:
         if st.button("Logout"):
             st.session_state.token = None
             st.rerun()
+            
+def cleanup_cache():
+    """Clean up cache when session ends"""
+    st.cache_data.clear()
+    st.cache_resource.clear()
+
+# Add this to the logout function
+def logout():
+    """Clear the session state and cache"""
+    cleanup_cache()
+    st.session_state.clear()
+    st.success("👋 Logged out successfully!")            
