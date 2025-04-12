@@ -484,44 +484,61 @@ if not st.session_state.token:
                         break
                     time.sleep(interval)
 else:
-    # Create the search area
-    st.write("---")
-    search_col1, search_col2, search_col3 = st.columns([2, 2, 1])
-    with search_col2:
-        search_email = st.text_input("Search User by Email", 
-                                    key="search_email", 
-                                    placeholder="Enter email address")
-    with search_col3:
-        search_button = st.button("Search", key="search_button")
+    # Create two main containers
+    search_container = st.container()
+    report_container = st.container()
 
-    # Add search functionality
-    if search_button and search_email:
-        with st.spinner("Fetching user details..."):
-            user_details = get_user_details(search_email, st.session_state.token)
-            if user_details:
-                with st.expander("User Details", expanded=True):
-                    st.write("### User Information")
-                    for key, value in user_details.items():
-                        col1, col2 = st.columns([1, 3])
-                        with col1:
-                            st.write(f"**{key}:**")
-                        with col2:
-                            st.write(value)
+    # Search Container
+    with search_container:
+        st.write("---")
+        search_col1, search_col2, search_col3 = st.columns([2, 2, 1])
+        with search_col2:
+            search_email = st.text_input("Search User by Email", 
+                                        key="search_email", 
+                                        placeholder="Enter email address")
+        with search_col3:
+            search_button = st.button("Search", key="search_button")
 
-    st.write("---")
+        # Add search functionality in a separate container
+        if search_button and search_email:
+            with st.spinner("Fetching user details..."):
+                user_details = get_user_details(search_email, st.session_state.token)
+                if user_details:
+                    with st.expander("User Details", expanded=True):
+                        st.write("### User Information")
+                        for key, value in user_details.items():
+                            col1, col2 = st.columns([1, 3])
+                            with col1:
+                                st.write(f"**{key}:**")
+                            with col2:
+                                st.write(value)
 
-    # Action buttons
-    action_col1, action_col2 = st.columns(2)
-    with action_col1:
-        if st.button("Get All Users", key="get_users_button"):
-            df = get_all_user_data(st.session_state.token)
-            if df is not None:
+    # Report Container
+    with report_container:
+        st.write("---")
+        # Action buttons
+        action_col1, action_col2 = st.columns(2)
+        
+        with action_col1:
+            if st.button("Get All Users", key="get_users_button"):
+                # Store the DataFrame in session state
+                st.session_state.df = get_all_user_data(st.session_state.token)
+                st.session_state.show_report = True
+
+        with action_col2:
+            if st.button("Logout", key="logout_button"):
+                st.session_state.token = None
+                st.rerun()
+
+        # Display report if it exists
+        if 'show_report' in st.session_state and st.session_state.show_report:
+            if st.session_state.df is not None:
                 st.write("### All Users Report")
-                st.write(f"Total Users: {len(df)}")
-                st.dataframe(df)
+                st.write(f"Total Users: {len(st.session_state.df)}")
+                st.dataframe(st.session_state.df)
                 
                 st.write("### Filtered Report")
-                filtered_df = filter_data(df)
+                filtered_df = filter_data(st.session_state.df)
                 st.write(f"Filtered Users: {len(filtered_df)}")
                 st.dataframe(filtered_df)
                 
@@ -529,11 +546,11 @@ else:
                 export_col1, export_col2, export_col3, export_col4 = st.columns(4)
                 with export_col1:
                     if st.button("Export All (Excel)", key="export_all_excel"):
-                        df.to_excel("all_users_report.xlsx", index=False)
+                        st.session_state.df.to_excel("all_users_report.xlsx", index=False)
                         st.success("Exported all users to Excel!")
                 with export_col2:
                     if st.button("Export All (CSV)", key="export_all_csv"):
-                        df.to_csv("all_users_report.csv", index=False)
+                        st.session_state.df.to_csv("all_users_report.csv", index=False)
                         st.success("Exported all users to CSV!")
                 with export_col3:
                     if st.button("Export Filtered (Excel)", key="export_filtered_excel"):
@@ -543,11 +560,6 @@ else:
                     if st.button("Export Filtered (CSV)", key="export_filtered_csv"):
                         filtered_df.to_csv("filtered_users_report.csv", index=False)
                         st.success("Exported filtered users to CSV!")
-
-    with action_col2:
-        if st.button("Logout", key="logout_button"):
-            st.session_state.token = None
-            st.rerun()
 
 
 def cleanup_cache():
