@@ -10,6 +10,8 @@ import plotly.express as px
 from collections import Counter
 from io import BytesIO
 import pandas as pd
+import os
+from pathlib import Path
 
 
 # Configure Streamlit
@@ -37,6 +39,77 @@ def init_session_state():
 init_session_state()        
 # Adjust cache duration to 6 hours
 @st.cache_resource(ttl=21600)  # 6 hours in seconds
+
+def get_desktop_path():
+    return str(Path.home() / "Desktop")
+
+def save_to_local(df_batch, filename):
+    try:
+        desktop_path = get_desktop_path()
+        full_path = os.path.join(desktop_path, filename)
+        
+        # If file exists, read and append
+        if os.path.exists(full_path):
+            existing_df = pd.read_excel(full_path)
+            combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
+            combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
+        else:
+            combined_df = df_batch
+            
+        # Save to desktop
+        combined_df.to_excel(full_path, index=False)
+        return combined_df
+    except Exception as e:
+        st.error(f"Error saving to local file: {e}")
+        return None
+
+def get_last_processed_user(token):
+    try:
+        # Try to get from SharePoint first
+        sharepoint_data = None
+        local_data = None
+        
+        # Check SharePoint
+        try:
+            filename = "user_report.xlsx"
+            url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{filename}:/content"
+            response = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                stream=True
+            )
+            
+            if response.status_code == 200:
+                excel_buffer = BytesIO(response.content)
+                sharepoint_data = pd.read_excel(excel_buffer)
+        except Exception as e:
+            print(f"Error reading SharePoint file: {e}")
+
+        # Check local file
+        try:
+            desktop_path = get_desktop_path()
+            local_file = os.path.join(desktop_path, "user_report.xlsx")
+            if os.path.exists(local_file):
+                local_data = pd.read_excel(local_file)
+        except Exception as e:
+            print(f"Error reading local file: {e}")
+
+        # Compare and get the most recent data
+        if sharepoint_data is not None and local_data is not None:
+            # Use the file with more records
+            if len(sharepoint_data) >= len(local_data):
+                return sharepoint_data
+            return local_data
+        elif sharepoint_data is not None:
+            return sharepoint_data
+        elif local_data is not None:
+            return local_data
+            
+        return None
+    except Exception as e:
+        st.error(f"Error getting last processed user: {e}")
+        return None
+
 def init_session():
     # 检查st.session_state中是否有initialized属性
     if not hasattr(st.session_state, 'initialized'):
@@ -164,44 +237,63 @@ def save_to_sharepoint(df_batch, filename, token):
         st.error(f"Error saving to SharePoint: {e}")
         return None
 
-def get_all_user_data(token):
+def get_all_user_data(token, resume=False):
     try:
         all_users = []
-        batch_size = 100  # Process 100 users at a time
-        next_link = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled"
+        batch_size = 100
         
-        with st.empty():
-            while next_link:
-                response = requests.get(
-                    next_link,
-                    headers={"Authorization": f"Bearer {token}"}
-                )
+        # If resuming, get the last processed user
+        last_processed_df = None
+        if resume:
+            last_processed_df = get_last_processed_user(token)
+            if last_processed_df is not None:
+                all_users = last_processed_df.to_dict('records')
+                st.info(f"Resuming from {len(all_users)} previously processed users")
+        
+        # Determine the starting point
+        if resume and last_processed_df is not None and not last_processed_df.empty:
+            # Get the last processed user's ID or email
+            last_user = last_processed_df.iloc[-1]
+            next_link = f"https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled&$filter=userPrincipalName gt '{last_user['userPrincipalName']}'"
+        else:
+            next_link = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled"
+        
+        progress_container = st.empty()
+        data_container = st.empty()
+        
+        while next_link:
+            response = requests.get(
+                next_link,
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                batch_users = data.get('value', [])
+                all_users.extend(batch_users)
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    batch_users = data.get('value', [])
-                    all_users.extend(batch_users)
+                # Convert batch to DataFrame
+                df_batch = pd.DataFrame(batch_users)
+                
+                if len(df_batch) > 0:
+                    # Save to both SharePoint and local
+                    filename = "user_report.xlsx"
+                    sharepoint_df = save_to_sharepoint(df_batch, filename, token)
+                    local_df = save_to_local(df_batch, filename)
                     
-                    # Convert batch to DataFrame
-                    df_batch = pd.DataFrame(batch_users)
+                    # Use SharePoint data for display (or local if SharePoint fails)
+                    display_df = sharepoint_df if sharepoint_df is not None else local_df
                     
-                    # Save batch to SharePoint/OneDrive
-                    if len(df_batch) > 0:
-                        filename = "user_report.xlsx"
-                        combined_df = save_to_sharepoint(df_batch, filename, token)
-                        
-                        if combined_df is not None:
-                            # Update progress
-                            st.write(f"Processed {len(all_users)} users. Data saved to SharePoint.")
-                            # Show current accumulated data
-                            st.dataframe(combined_df)
-                    
-                    # Get next batch link
-                    next_link = data.get('@odata.nextLink', None)
-                else:
-                    st.error("Failed to fetch users")
-                    break
-                    
+                    if display_df is not None:
+                        # Update progress
+                        progress_container.write(f"Processed {len(all_users)} users. Data saved to SharePoint and local desktop.")
+                        data_container.dataframe(display_df)
+                
+                next_link = data.get('@odata.nextLink', None)
+            else:
+                st.error("Failed to fetch users")
+                break
+                
         # Convert final result to DataFrame
         df = pd.DataFrame(all_users)
         return df
@@ -210,14 +302,30 @@ def get_all_user_data(token):
         st.error(f"Error: {e}")
         return None
 
-    # In your main app code, modify the "Get All Users" button section:
+# In your main app code, modify the action buttons section:
+    with report_container:
+        st.write("---")
+    # Action buttons
+    action_col1, action_col2, action_col3 = st.columns(3)
+    
     with action_col1:
-      if st.button("Get All Users", key="get_users_button"):
-        # Store the DataFrame in session state
-        st.session_state.df = get_all_user_data(st.session_state.token)
-        if st.session_state.df is not None:
-            st.session_state.show_report = True
-            st.success("Data collection complete and saved to SharePoint!")
+        if st.button("Get All Users", key="get_users_button"):
+            st.session_state.df = get_all_user_data(st.session_state.token, resume=False)
+            if st.session_state.df is not None:
+                st.session_state.show_report = True
+                st.success("Data collection complete!")
+
+    with action_col2:
+        if st.button("Resume Processing", key="resume_button"):
+            st.session_state.df = get_all_user_data(st.session_state.token, resume=True)
+            if st.session_state.df is not None:
+                st.session_state.show_report = True
+                st.success("Resume processing complete!")
+
+    with action_col3:
+        if st.button("Logout", key="logout_button"):
+            st.session_state.token = None
+            st.rerun()
 
 def get_device_code():
     """Get device code for authentication"""
