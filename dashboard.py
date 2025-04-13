@@ -826,7 +826,12 @@ def process_users_chunk(users_chunk, token, headers):
 # Add this function for getting detailed user information
 
 
-def get_user_details(email, token):
+
+
+執行
+
+複製
+def get_user_details(email, token, user_id=None):
     headers = {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json'
@@ -835,12 +840,12 @@ def get_user_details(email, token):
     try:
         # Get user basic info (using beta endpoint for signInActivity)
         user_response = requests.get(
-            f'https://graph.microsoft.com/beta/users/{email}',
+            f'https://graph.microsoft.com/beta/users/{user_id}',  # Use user_id instead of email
             headers=headers
         )
         
         if user_response.status_code != 200:
-            st.error(f"User not found: {email}")
+            print(f"Error getting user {email}: {user_response.status_code}")
             return None
             
         user_data = user_response.json()
@@ -911,49 +916,35 @@ def get_all_user_data(token, resume=False):
         users = []
         next_link = 'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,accountEnabled,createdDateTime,signInActivity'
         
-        # Resume from last position if requested
-        if resume and 'last_position' in st.session_state:
-            next_link = st.session_state.last_position
-
-        with st.progress(0) as progress_bar:
-            while next_link:
-                response = requests.get(next_link, headers={'Authorization': f'Bearer {token}'})
-                if response.status_code != 200:
-                    st.error("Failed to fetch users")
-                    return None
-                
-                data = response.json()
-                batch = data.get('value', [])
-                
-                for user in batch:
-                    user_details = get_user_details(user['userPrincipalName'], token)
-                    if user_details:
-                        users.append(user_details)
-                
-                # Save position in case of need to resume
-                st.session_state.last_position = next_link
-                
-                next_link = data.get('@odata.nextLink')
-                progress = min(len(users) / 100, 1.0)
-                progress_bar.progress(progress)
-        
-        # Clear last position after successful completion
-        if 'last_position' in st.session_state:
-            del st.session_state.last_position
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(users)
-        
-        # Add filtered version to session state
-        if df is not None:
-            filtered_df = filter_data(df)
-            st.session_state.filtered_df = filtered_df
+        progress_bar = st.progress(0)
+        while next_link:
+            response = requests.get(next_link, headers={'Authorization': f'Bearer {token}'})
+            if response.status_code != 200:
+                st.error("Failed to fetch users")
+                return None
             
-            # Add summary stats to session state
-            st.session_state.total_users = len(df)
-            st.session_state.filtered_users = len(filtered_df)
+            data = response.json()
+            batch = data.get('value', [])
+            
+            for user in batch:
+                user_details = get_user_details(
+                    email=user['userPrincipalName'],
+                    token=token,
+                    user_id=user['id']  # Pass the user ID from the batch
+                )
+                if user_details:
+                    users.append(user_details)
+            
+            next_link = data.get('@odata.nextLink')
+            progress = min(len(users) / 100, 1.0)
+            progress_bar.progress(progress)
         
-        return df
+        if users:
+            df = pd.DataFrame(users)
+            return df
+        else:
+            st.warning("No users found")
+            return None
         
     except Exception as e:
         st.error(f"Error fetching all users: {str(e)}")
