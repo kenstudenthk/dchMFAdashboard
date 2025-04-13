@@ -99,27 +99,44 @@ def select_save_path():
     
     return st.session_state.save_path
 def get_desktop_path():
-    """Get the desktop path for the current user"""
-    try:
-        # Using pathlib for cross-platform compatibility
-        desktop_path = str(Path.home() / "Desktop")
-        
-        # Specific path for your Mac
-        if not os.path.exists(desktop_path):
-            desktop_path = "/Users/kilson/Desktop"
-            
-        if not os.path.exists(desktop_path):
-            st.error("Could not find Desktop path")
-            return None
-            
-        return desktop_path
-    except Exception as e:
-        st.error(f"Error getting desktop path: {str(e)}")
-        return None
+    return str(Path.home() / "Desktop")
 
+# Add this function to handle path management
+def handle_save_path():
+    if 'save_path' not in st.session_state:
+        st.session_state.save_path = get_desktop_path()
+    
+    st.sidebar.markdown("### Save Location Settings")
+    
+    # Show current path
+    st.sidebar.info(f"Current save path:\n{st.session_state.save_path}")
+    
+    # Button to change path
+    if st.sidebar.button("Change Save Location"):
+        st.session_state.show_path_input = True
+        
+    # Show path input if requested
+    if st.session_state.get('show_path_input', False):
+        new_path = st.sidebar.text_input(
+            "Enter new save path:",
+            value=st.session_state.save_path
+        )
+        
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            if st.button("Confirm"):
+                try:
+                    os.makedirs(new_path, exist_ok=True)
+                    st.session_state.save_path = new_path
+                    st.session_state.show_path_input = False
+                    st.sidebar.success("✅ Path updated!")
+                except Exception as e:
+                    st.sidebar.error(f"❌ Error: {str(e)}")
+        with col2:
+            if st.button("Cancel"):
+                st.session_state.show_path_input = False
 
 def save_to_local(df_batch, filename):
-    """Save dataframe to local file"""
     try:
         save_path = st.session_state.save_path
         full_path = os.path.join(save_path, filename)
@@ -133,7 +150,6 @@ def save_to_local(df_batch, filename):
             combined_df = df_batch
             st.toast("Creating new file", icon="📝")
         
-        # Save to selected path
         combined_df.to_excel(full_path, index=False)
         st.toast(f"Successfully saved to: {filename}", icon="✅")
         
@@ -424,7 +440,7 @@ def main():
 
     # Add save location settings to sidebar
     if st.session_state.token:  # Only show when logged in
-        select_save_path()  # This will update st.session_state.save_path
+        handle_save_path() # This will update st.session_state.save_path
         
         # Show current save location
         st.sidebar.info(f"""
