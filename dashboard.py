@@ -32,7 +32,7 @@ def init_session_state():
         'show_report': False,
         'authentication_in_progress': False,
         'device_code_response': None,
-        'save_path': get_desktop_path(),
+        'save_path': str(Path.home() / "Desktop"),  # Direct path definition
         'show_path_input': False
     }
     
@@ -104,9 +104,6 @@ def get_desktop_path():
 
 # Add this function to handle path management
 def handle_save_path():
-    if 'save_path' not in st.session_state:
-        st.session_state.save_path = get_desktop_path()
-    
     st.sidebar.markdown("### Save Location Settings")
     
     # Show current path
@@ -136,6 +133,28 @@ def handle_save_path():
         with col2:
             if st.button("Cancel"):
                 st.session_state.show_path_input = False
+
+def save_to_local(df_batch, filename):
+    try:
+        save_path = st.session_state.save_path
+        full_path = os.path.join(save_path, filename)
+        
+        if os.path.exists(full_path):
+            existing_df = pd.read_excel(full_path)
+            combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
+            combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
+            st.toast(f"Updated existing file. Total records: {len(combined_df)}", icon="📤")
+        else:
+            combined_df = df_batch
+            st.toast("Creating new file", icon="📝")
+        
+        combined_df.to_excel(full_path, index=False)
+        st.toast(f"Successfully saved to: {filename}", icon="✅")
+        
+        return combined_df
+    except Exception as e:
+        st.error(f"Error saving file: {str(e)}")
+        return None
 
 def save_to_local(df_batch, filename):
     try:
