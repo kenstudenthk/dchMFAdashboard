@@ -23,6 +23,9 @@ st.set_page_config(
 # Initialize all session state variables at the start
 
 def init_session_state():
+    # Get user's Documents folder as default (more likely to have write permissions)
+    default_path = os.path.expanduser("~/Documents/MFAReports")
+    
     defaults = {
         'token': None,
         'data': [],
@@ -32,7 +35,7 @@ def init_session_state():
         'show_report': False,
         'authentication_in_progress': False,
         'device_code_response': None,
-        'save_path': str(Path.home() / "Desktop"),  # Direct path definition
+        'save_path': default_path,  # Direct path definition
         'show_path_input': False
     }
     
@@ -106,6 +109,12 @@ def get_desktop_path():
 def handle_save_path():
     st.sidebar.markdown("### Save Location Settings")
     
+    # Create default directory if it doesn't exist
+    try:
+        os.makedirs(st.session_state.save_path, exist_ok=True)
+    except Exception as e:
+        st.sidebar.error(f"❌ Cannot create default directory: {str(e)}")
+    
     # Show current path
     st.sidebar.info(f"Current save path:\n{st.session_state.save_path}")
     
@@ -117,17 +126,29 @@ def handle_save_path():
     if st.session_state.get('show_path_input', False):
         new_path = st.sidebar.text_input(
             "Enter new save path:",
-            value=st.session_state.save_path
+            value=st.session_state.save_path,
+            help="Example: ~/Documents/MFAReports or /Users/yourusername/Documents/MFAReports"
         )
+        
+        # Expand user directory if ~ is used
+        new_path = os.path.expanduser(new_path)
         
         col1, col2 = st.sidebar.columns(2)
         with col1:
             if st.button("Confirm"):
                 try:
                     os.makedirs(new_path, exist_ok=True)
+                    # Test write permissions
+                    test_file = os.path.join(new_path, 'test.txt')
+                    with open(test_file, 'w') as f:
+                        f.write('test')
+                    os.remove(test_file)
+                    
                     st.session_state.save_path = new_path
                     st.session_state.show_path_input = False
                     st.sidebar.success("✅ Path updated!")
+                except PermissionError:
+                    st.sidebar.error("❌ No permission to write to this location. Please choose another folder.")
                 except Exception as e:
                     st.sidebar.error(f"❌ Error: {str(e)}")
         with col2:
@@ -137,6 +158,10 @@ def handle_save_path():
 def save_to_local(df_batch, filename):
     try:
         save_path = st.session_state.save_path
+        
+        # Ensure directory exists
+        os.makedirs(save_path, exist_ok=True)
+        
         full_path = os.path.join(save_path, filename)
         
         if os.path.exists(full_path):
@@ -151,31 +176,15 @@ def save_to_local(df_batch, filename):
         combined_df.to_excel(full_path, index=False)
         st.toast(f"Successfully saved to: {filename}", icon="✅")
         
+        # Show full path in sidebar
+        st.sidebar.success(f"File saved to:\n{full_path}")
+        
         return combined_df
-    except Exception as e:
-        st.error(f"Error saving file: {str(e)}")
+    except PermissionError:
+        st.error("❌ No permission to save file. Please choose another location.")
         return None
-
-def save_to_local(df_batch, filename):
-    try:
-        save_path = st.session_state.save_path
-        full_path = os.path.join(save_path, filename)
-        
-        if os.path.exists(full_path):
-            existing_df = pd.read_excel(full_path)
-            combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
-            combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
-            st.toast(f"Updated existing file. Total records: {len(combined_df)}", icon="📤")
-        else:
-            combined_df = df_batch
-            st.toast("Creating new file", icon="📝")
-        
-        combined_df.to_excel(full_path, index=False)
-        st.toast(f"Successfully saved to: {filename}", icon="✅")
-        
-        return combined_df
     except Exception as e:
-        st.error(f"Error saving file: {str(e)}")
+        st.error(f"❌ Error saving file: {str(e)}")
         return None
 
 # Update init_session_state
