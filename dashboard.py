@@ -110,10 +110,7 @@ def select_save_path():
     
     return st.session_state.save_path
 def get_desktop_path():
-/*************  ✨ Windsurf Command ⭐  *************/
-    """Return the path to the user's desktop directory."""
-    
-/*******  80d8769f-7318-4f6d-8c64-643b25c8af35  *******/
+
     return str(Path.home() / "Desktop")
 
 # Add this function to handle path management
