@@ -8,6 +8,8 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 import plotly.express as px
 from collections import Counter
+from io import BytesIO
+import pandas as pd
 
 
 # Configure Streamlit
@@ -106,7 +108,116 @@ def logout():
     st.session_state.clear()
     st.success("👋 Logged out successfully!")
 
+def save_to_sharepoint(df_batch, filename, token):
+    try:
+        # Convert DataFrame to Excel in memory
+        excel_buffer = BytesIO()
+        
+        # If file exists, read and append, otherwise create new
+        try:
+            # Try to download existing file
+            existing_file_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{filename}:/content"
+            response = requests.get(
+                existing_file_url,
+                headers={"Authorization": f"Bearer {token}"},
+                stream=True
+            )
+            
+            if response.status_code == 200:
+                # Read existing file
+                excel_buffer.write(response.content)
+                existing_df = pd.read_excel(excel_buffer)
+                # Concatenate with new data
+                combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
+                # Drop duplicates based on user ID or email
+                combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
+            else:
+                combined_df = df_batch
+                
+        except Exception as e:
+            print(f"No existing file found or error reading file: {e}")
+            combined_df = df_batch
+        
+        # Save combined DataFrame to buffer
+        excel_buffer = BytesIO()
+        combined_df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        
+        # Upload to OneDrive/SharePoint
+        upload_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{filename}:/content"
+        response = requests.put(
+            upload_url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            },
+            data=excel_buffer.getvalue()
+        )
+        
+        if response.status_code in [200, 201]:
+            return combined_df
+        else:
+            st.error(f"Failed to save file: {response.text}")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error saving to SharePoint: {e}")
+        return None
 
+def get_all_user_data(token):
+    try:
+        all_users = []
+        batch_size = 100  # Process 100 users at a time
+        next_link = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled"
+        
+        with st.empty():
+            while next_link:
+                response = requests.get(
+                    next_link,
+                    headers={"Authorization": f"Bearer {token}"}
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    batch_users = data.get('value', [])
+                    all_users.extend(batch_users)
+                    
+                    # Convert batch to DataFrame
+                    df_batch = pd.DataFrame(batch_users)
+                    
+                    # Save batch to SharePoint/OneDrive
+                    if len(df_batch) > 0:
+                        filename = "user_report.xlsx"
+                        combined_df = save_to_sharepoint(df_batch, filename, token)
+                        
+                        if combined_df is not None:
+                            # Update progress
+                            st.write(f"Processed {len(all_users)} users. Data saved to SharePoint.")
+                            # Show current accumulated data
+                            st.dataframe(combined_df)
+                    
+                    # Get next batch link
+                    next_link = data.get('@odata.nextLink', None)
+                else:
+                    st.error("Failed to fetch users")
+                    break
+                    
+        # Convert final result to DataFrame
+        df = pd.DataFrame(all_users)
+        return df
+        
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return None
+
+    # In your main app code, modify the "Get All Users" button section:
+    with action_col1:
+      if st.button("Get All Users", key="get_users_button"):
+        # Store the DataFrame in session state
+        st.session_state.df = get_all_user_data(st.session_state.token)
+        if st.session_state.df is not None:
+            st.session_state.show_report = True
+            st.success("Data collection complete and saved to SharePoint!")
 
 def get_device_code():
     """Get device code for authentication"""
