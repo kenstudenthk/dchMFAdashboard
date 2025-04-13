@@ -21,19 +21,29 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 # Initialize all session state variables at the start
+
 def init_session_state():
-    if 'token' not in st.session_state:
-        st.session_state.token = None
-    if 'data' not in st.session_state:
-        st.session_state.data = []
-    if 'processing' not in st.session_state:
-        st.session_state.processing = False
-    if 'processed_count' not in st.session_state:
-        st.session_state.processed_count = 0
-    if 'df' not in st.session_state:
-        st.session_state.df = None
-    if 'show_report' not in st.session_state:
-        st.session_state.show_report = False
+    defaults = {
+        'token': None,
+        'data': [],
+        'processing': False,
+        'processed_count': 0,
+        'df': None,
+        'show_report': False,
+        'authentication_in_progress': False,
+        'device_code_response': None
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+# Dashboard Functions
+# Configuration
+TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  
+CLIENT_ID = "1b730954-1685-4b74-9bfd-dac224a7b894"
+CHUNK_SIZE = 100
+DISPLAY_UPDATE_FREQUENCY = 500
+TOTAL_USERS_ESTIMATE = 13500       
         
 # Call the initialization function at the start
 init_session_state()        
@@ -70,10 +80,7 @@ def save_to_local(df_batch, filename):
         
         return combined_df
     except Exception as e:
-        st.toast(f"Error saving to local file!", icon="❌")
-        return None
-    except Exception as e:
-        st.error(f"Error saving to local file: {e}")
+        st.toast(f"Error saving to local file: {str(e)}", icon="❌")
         return None
 
 def get_last_processed_user(token):
@@ -123,27 +130,7 @@ def get_last_processed_user(token):
         st.error(f"Error getting last processed user: {e}")
         return None
 
-def init_session():
-    # 检查st.session_state中是否有initialized属性
-    if not hasattr(st.session_state, 'initialized'):
-        st.session_state.initialized = True
-        st.session_state.token = None
-        st.session_state.data = []
-        st.session_state.processing = False
-        st.session_state.processed_count = 0
 
-# Configure server settings
-if not st.session_state.get('server_config'):
-    st.session_state.server_config = True
-    st.cache_data.clear()
-    st.cache_resource.clear()
-# Dashboard Functions
-# Configuration
-TENANT_ID = "0c354a30-f421-4d42-bd98-0d86e396d207"  
-CLIENT_ID = "1b730954-1685-4b74-9bfd-dac224a7b894"
-CHUNK_SIZE = 100
-DISPLAY_UPDATE_FREQUENCY = 500
-TOTAL_USERS_ESTIMATE = 13500
 # Authentication Functions
 def make_graph_request(endpoint: str, token: str) -> dict:
     """Make a request to Microsoft Graph API with error handling"""
@@ -189,10 +176,6 @@ def check_auth() -> bool:
     """Check if user is authenticated"""
     return 'token' in st.session_state and st.session_state.token is not None
 
-def logout():
-    """Clear the session state"""
-    st.session_state.clear()
-    st.success("👋 Logged out successfully!")
 
 def save_to_sharepoint(df_batch, filename, token):
     try:
@@ -246,8 +229,38 @@ def save_to_sharepoint(df_batch, filename, token):
         st.toast(f"Error saving to SharePoint!", icon="❌")
         return None
 
+def refresh_token_with_device_code():
+    """Get a new token using device code flow"""
+    try:
+        device_code_response = get_device_code()
+        if device_code_response:
+            st.warning("""Your session has expired. Please authenticate again.
+            Visit: https://microsoft.com/devicelogin
+            And enter the code shown below:""")
+            st.code(device_code_response['user_code'])
+            
+            device_code = device_code_response['device_code']
+            token_response = poll_for_token(device_code)
+            
+            if token_response and 'access_token' in token_response:
+                st.session_state.token = token_response['access_token']
+                st.success("Successfully refreshed authentication!")
+                return True
+    except Exception as e:
+        st.error(f"Error refreshing token: {str(e)}")
+    return False
+
 def get_all_user_data(token, resume=False):
     try:
+        # Check token validity before starting
+        if not check_token_validity(token):
+            st.warning("Authentication expired. Refreshing token...")
+            if not refresh_token_with_device_code():
+                st.error("Failed to refresh authentication. Please try again.")
+                return None
+            # Get new token from session state
+            token = st.session_state.token
+            
         all_users = []
         batch_size = 100
         
@@ -314,42 +327,158 @@ def get_all_user_data(token, resume=False):
         return df
         
     except Exception as e:
-        st.toast(f"Error in data processing!", icon="❌")
+        st.toast(f"Error in data processing: {str(e)}", icon="❌")
         return None
 
-# Main app layout
+def handle_token_validation():
+    if not st.session_state.token:
+        return False
+    
+    if not check_token_validity(st.session_state.token):
+        st.warning("Authentication expired. Refreshing token...")
+        if not refresh_token_with_device_code():
+            st.error("Failed to refresh authentication. Please try again.")
+            return False
+    return True
+
 def main():
-    if 'show_report' in st.session_state and st.session_state.show_report:
-        st.sidebar.markdown("""
-        ### File Locations
-        - SharePoint/OneDrive: root folder
-        - Local: Desktop folder
-        """)
+    st.title("Microsoft Graph User Report")
 
-    with st.container() as report_container:
-        st.write("---")
-        # Action buttons
-        action_col1, action_col2, action_col3 = st.columns(3)
+    # Authentication Flow
+    if not st.session_state.token:
+        # Show login button if not in authentication process
+        if not st.session_state.authentication_in_progress:
+            if st.button("Login to Microsoft", key="login_button"):
+                st.session_state.device_code_response = get_device_code()
+                if st.session_state.device_code_response:
+                    st.session_state.authentication_in_progress = True
+                    st.rerun()
         
-        with action_col1:
-            if st.button("Get All Users", key="get_users_button"):
-                st.session_state.df = get_all_user_data(st.session_state.token, resume=False)
-                if st.session_state.df is not None:
-                    st.session_state.show_report = True
-                    st.success("Data collection complete!")
-
-        with action_col2:
-            if st.button("Resume Processing", key="resume_button"):
-                st.session_state.df = get_all_user_data(st.session_state.token, resume=True)
-                if st.session_state.df is not None:
-                    st.session_state.show_report = True
-                    st.success("Resume processing complete!")
-
-        with action_col3:
-            if st.button("Logout", key="logout_button"):
-                st.session_state.token = None
+        # Show device code flow if in authentication process
+        if st.session_state.authentication_in_progress:
+            st.markdown("""
+            ### Please follow these steps:
+            1. Go to: https://microsoft.com/devicelogin
+            2. Enter this code:
+            """)
+            st.code(st.session_state.device_code_response['user_code'])
+            
+            with st.spinner("Waiting for authentication..."):
+                interval = int(st.session_state.device_code_response.get('interval', 5))
+                expires_in = int(st.session_state.device_code_response.get('expires_in', 900))
+                start_time = time.time()
+                
+                while time.time() - start_time < expires_in:
+                    token_response = poll_for_token(st.session_state.device_code_response['device_code'])
+                    if token_response:
+                        st.session_state.token = token_response['access_token']
+                        st.session_state.authentication_in_progress = False
+                        st.session_state.device_code_response = None
+                        st.success("Successfully logged in!")
+                        st.rerun()
+                        break
+                    time.sleep(interval)
+                
+                # Handle timeout
+                st.error("Authentication timed out. Please try again.")
+                st.session_state.authentication_in_progress = False
+                st.session_state.device_code_response = None
                 st.rerun()
 
+    else:
+        # Validate existing token
+        if not handle_token_validation():
+            st.session_state.token = None
+            st.rerun()
+            return
+
+        # Show sidebar info if report exists
+        if st.session_state.show_report:
+            st.sidebar.markdown("""
+            ### File Locations
+            - SharePoint/OneDrive: root folder
+            - Local: Desktop folder
+            """)
+
+        # Search Container
+        with st.container():
+            st.write("---")
+            search_col1, search_col2, search_col3 = st.columns([2, 2, 1])
+            with search_col2:
+                search_email = st.text_input(
+                    "Search User by Email", 
+                    key="search_email", 
+                    placeholder="Enter email address"
+                )
+            with search_col3:
+                if st.button("Search", key="search_button"):
+                    if search_email:
+                        with st.spinner("Fetching user details..."):
+                            user_details = get_user_details(search_email, st.session_state.token)
+                            if user_details:
+                                with st.expander("User Details", expanded=True):
+                                    st.write("### User Information")
+                                    for key, value in user_details.items():
+                                        col1, col2 = st.columns([1, 3])
+                                        with col1:
+                                            st.write(f"**{key}:**")
+                                        with col2:
+                                            st.write(value)
+
+        # Main Actions
+        with st.container():
+            st.write("---")
+            action_col1, action_col2, action_col3 = st.columns(3)
+            
+            with action_col1:
+                if st.button("Get All Users", key="get_users_button"):
+                    st.session_state.df = get_all_user_data(st.session_state.token, resume=False)
+                    if st.session_state.df is not None:
+                        st.session_state.show_report = True
+                        st.success("Data collection complete!")
+
+            with action_col2:
+                if st.button("Resume Processing", key="resume_button"):
+                    st.session_state.df = get_all_user_data(st.session_state.token, resume=True)
+                    if st.session_state.df is not None:
+                        st.session_state.show_report = True
+                        st.success("Resume processing complete!")
+
+            with action_col3:
+                if st.button("Logout", key="logout_button"):
+                    logout()
+                    st.rerun()
+
+        # Display Report
+        if st.session_state.show_report and st.session_state.df is not None:
+            st.write("### All Users Report")
+            st.write(f"Total Users: {len(st.session_state.df)}")
+            st.dataframe(st.session_state.df)
+            
+            st.write("### Filtered Report")
+            filtered_df = filter_data(st.session_state.df)
+            st.write(f"Filtered Users: {len(filtered_df)}")
+            st.dataframe(filtered_df)
+            
+            # Export Options
+            st.write("### Export Options")
+            export_col1, export_col2, export_col3, export_col4 = st.columns(4)
+            with export_col1:
+                if st.button("Export All (Excel)", key="export_all_excel"):
+                    st.session_state.df.to_excel("all_users_report.xlsx", index=False)
+                    st.success("Exported all users to Excel!")
+            with export_col2:
+                if st.button("Export All (CSV)", key="export_all_csv"):
+                    st.session_state.df.to_csv("all_users_report.csv", index=False)
+                    st.success("Exported all users to CSV!")
+            with export_col3:
+                if st.button("Export Filtered (Excel)", key="export_filtered_excel"):
+                    filtered_df.to_excel("filtered_users_report.xlsx", index=False)
+                    st.success("Exported filtered users to Excel!")
+            with export_col4:
+                if st.button("Export Filtered (CSV)", key="export_filtered_csv"):
+                    filtered_df.to_csv("filtered_users_report.csv", index=False)
+                    st.success("Exported filtered users to CSV!")
 def get_device_code():
     """Get device code for authentication"""
     try:
@@ -468,66 +597,7 @@ def process_users_chunk(users_chunk, token, headers):
     
     return chunk_data
 
-def get_all_user_data(token):
-    # 设置请求头
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json'
-    }
-    
-    users_data = []
-    # 创建进度条和表格占位符
-    progress_placeholder = st.empty()
-    table_placeholder = st.empty()
-    
-    try:
-        # Process users in chunks of 100
-        CHUNK_SIZE = 100
-        next_link = 'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,createdDateTime,signInActivity,accountEnabled&$top=999'
-        total_processed = 0
-        
-        while next_link:
-            response = requests.get(next_link, headers=headers)
-            if response.status_code != 200:
-                st.error("Failed to fetch users")
-                return None
 
-            current_users = response.json().get('value', [])
-            
-            # Process users in chunks
-            for i in range(0, len(current_users), CHUNK_SIZE):
-                chunk = current_users[i:i + CHUNK_SIZE]
-                chunk_data = process_users_chunk(chunk, token, headers)
-                users_data.extend(chunk_data)
-                
-                total_processed += len(chunk)
-                progress_placeholder.progress(min(total_processed / 13500, 1.0))  # Assuming 13500 total users
-                progress_placeholder.write(f"Processed {total_processed} users...")
-                
-                # Update display every 500 users
-                if total_processed % 500 == 0:
-                    temp_df = pd.DataFrame(users_data)
-                    table_placeholder.dataframe(temp_df)
-            
-            next_link = response.json().get('@odata.nextLink')
-        
-        progress_placeholder.empty()
-        
-        if not users_data:
-            st.warning("No users found")
-            return None
-        
-        df = pd.DataFrame(users_data)
-        df['Creation Date'] = pd.to_datetime(df['Creation Date']).dt.strftime('%Y-%m-%d %H:%M:%S')
-        df['Last Interactive SignIn'] = pd.to_datetime(df['Last Interactive SignIn']).dt.strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Cache the final dataframe
-        st.session_state.data = df
-        return df
-        
-    except Exception as e:
-        st.error(f"Error fetching data: {str(e)}")
-        return None
 # Add this function for getting detailed user information
 def get_user_details(email, token):
     headers = {
@@ -701,131 +771,18 @@ def filter_data(df):
     
     return filtered_df
 
-# Main app
-st.title("Microsoft Graph User Report")
 
-# Initialize session state for device code flow
-if 'authentication_in_progress' not in st.session_state:
-    st.session_state.authentication_in_progress = False
-if 'device_code_response' not in st.session_state:
-    st.session_state.device_code_response = None
+def check_token_validity(token):
+    """Check if the token is valid by making a test request"""
+    try:
+        response = requests.get(
+            'https://graph.microsoft.com/v1.0/me',
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        return response.status_code == 200
+    except:
+        return False
 
-if not st.session_state.token:
-    if not st.session_state.authentication_in_progress:
-        if st.button("Login to Microsoft"):
-            st.session_state.device_code_response = get_device_code()
-            if st.session_state.device_code_response:
-                st.session_state.authentication_in_progress = True
-                st.rerun()
-    
-    if st.session_state.authentication_in_progress:
-        st.markdown("""
-        ### Please follow these steps:
-        1. Go to: https://microsoft.com/devicelogin
-        2. Enter this code:
-        """)
-        st.code(st.session_state.device_code_response['user_code'])
-        
-        with st.spinner("Waiting for authentication..."):
-            interval = int(st.session_state.device_code_response.get('interval', 5))
-            expires_in = int(st.session_state.device_code_response.get('expires_in', 900))
-            start_time = time.time()
-            
-            while time.time() - start_tim   e < expires_in:
-                token_response = poll_for_token(st.session_state.device_code_response['device_code'])
-                if token_response:
-                    st.session_state.token = token_response['access_token']
-                    st.session_state.authentication_in_progress = False
-                    st.session_state.device_code_response = None
-                    st.success("Successfully logged in!")
-                    st.rerun()
-                    break
-                time.sleep(interval)
-            
-            # If we get here, authentication timed out
-            st.error("Authentication timed out. Please try again.")
-            st.session_state.authentication_in_progress = False
-            st.session_state.device_code_response = None
-            st.rerun()
-
-else:
-    # Your existing authenticated user code remains the same
-    # Create two main containers
-    search_container = st.container()
-    report_container = st.container()
-
-    # Search Container
-    with search_container:
-        st.write("---")
-        search_col1, search_col2, search_col3 = st.columns([2, 2, 1])
-        with search_col2:
-            search_email = st.text_input("Search User by Email", 
-                                        key="search_email", 
-                                        placeholder="Enter email address")
-        with search_col3:
-            search_button = st.button("Search", key="search_button")
-
-        # Add search functionality in a separate container
-        if search_button and search_email:
-            with st.spinner("Fetching user details..."):
-                user_details = get_user_details(search_email, st.session_state.token)
-                if user_details:
-                    with st.expander("User Details", expanded=True):
-                        st.write("### User Information")
-                        for key, value in user_details.items():
-                            col1, col2 = st.columns([1, 3])
-                            with col1:
-                                st.write(f"**{key}:**")
-                            with col2:
-                                st.write(value)
-
-    # Report Container
-    with report_container:
-        st.write("---")
-        # Action buttons
-        action_col1, action_col2 = st.columns(2)
-        
-        with action_col1:
-            if st.button("Get All Users", key="get_users_button"):
-                # Store the DataFrame in session state
-                st.session_state.df = get_all_user_data(st.session_state.token)
-                st.session_state.show_report = True
-
-        with action_col2:
-            if st.button("Logout", key="logout_button"):
-                st.session_state.token = None
-                st.rerun()
-
-        # Display report if it exists
-        if 'show_report' in st.session_state and st.session_state.show_report:
-            if st.session_state.df is not None:
-                st.write("### All Users Report")
-                st.write(f"Total Users: {len(st.session_state.df)}")
-                st.dataframe(st.session_state.df)
-                
-                st.write("### Filtered Report")
-                filtered_df = filter_data(st.session_state.df)
-                st.write(f"Filtered Users: {len(filtered_df)}")
-                st.dataframe(filtered_df)
-                
-                st.write("### Export Options")
-                export_col1, export_col2, export_col3, export_col4 = st.columns(4)
-                with export_col1:
-                    if st.button("Export All (Excel)", key="export_all_excel"):
-                        st.session_state.df.to_excel("all_users_report.xlsx", index=False)
-                        st.success("Exported all users to Excel!")
-                with export_col2:
-                    if st.button("Export All (CSV)", key="export_all_csv"):
-                        st.session_state.df.to_csv("all_users_report.csv", index=False)
-                        st.success("Exported all users to CSV!")
-                with export_col3:
-                    if st.button("Export Filtered (Excel)", key="export_filtered_excel"):
-                        filtered_df.to_excel("filtered_users_report.xlsx", index=False)
-                        st.success("Exported filtered users to Excel!")
-                with export_col4:
-                    if st.button("Export Filtered (CSV)", key="export_filtered_csv"):
-                        filtered_df.to_csv("filtered_users_report.csv", index=False)
-                        st.success("Exported filtered users to CSV!")
 
 
 def cleanup_cache():
@@ -838,7 +795,7 @@ def logout():
     """Clear the session state and cache"""
     cleanup_cache()
     st.session_state.clear()
-    st.success("👋 Logged out successfully!")            
-
+    st.success("👋 Logged out successfully!")
+    
 if __name__ == "__main__":
     main()
