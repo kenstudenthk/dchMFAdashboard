@@ -31,7 +31,8 @@ def init_session_state():
         'df': None,
         'show_report': False,
         'authentication_in_progress': False,
-        'device_code_response': None
+        'device_code_response': None,
+        'save_path': str(Path.home() / "Desktop")  # Default path
     }
     
     for key, value in defaults.items():
@@ -49,6 +50,37 @@ TOTAL_USERS_ESTIMATE = 13500
 init_session_state()        
 # Adjust cache duration to 6 hours
 @st.cache_resource(ttl=21600)  # 6 hours in seconds
+
+def select_save_path():
+    """Let user select where to save files"""
+    st.sidebar.markdown("### Save Location Settings")
+    
+    # Option to use default Desktop path
+    use_desktop = st.sidebar.checkbox("Save to Desktop", value=True)
+    
+    if use_desktop:
+        save_path = str(Path.home() / "Desktop")
+    else:
+        # Let user input custom path
+        save_path = st.sidebar.text_input(
+            "Enter save path:",
+            value=st.session_state.save_path,
+            help="Enter the full path where you want to save files"
+        )
+    
+    # Test if path exists
+    if not os.path.exists(save_path):
+        st.sidebar.error("⚠️ Path does not exist!")
+        try:
+            # Try to create the directory
+            os.makedirs(save_path, exist_ok=True)
+            st.sidebar.success("✅ Created directory successfully!")
+        except Exception as e:
+            st.sidebar.error(f"❌ Could not create directory: {str(e)}")
+            return None
+    
+    st.session_state.save_path = save_path
+    return save_path
 
 def get_desktop_path():
     """Get the desktop path for the current user"""
@@ -72,8 +104,13 @@ def get_desktop_path():
 
 def save_to_local(df_batch, filename):
     try:
-        desktop_path = get_desktop_path()
-        full_path = os.path.join(desktop_path, filename)
+        # Get save path from session state or let user select
+        save_path = select_save_path()
+        if not save_path:
+            st.error("Please select a valid save location")
+            return None
+            
+        full_path = os.path.join(save_path, filename)
         
         if os.path.exists(full_path):
             existing_df = pd.read_excel(full_path)
@@ -84,13 +121,13 @@ def save_to_local(df_batch, filename):
             combined_df = df_batch
             st.toast("Creating new local file", icon="📝")
             
-        # Save to desktop
+        # Save to selected path
         combined_df.to_excel(full_path, index=False)
-        st.toast(f"Successfully saved to Desktop: {filename}", icon="✅")
+        st.toast(f"Successfully saved to: {filename}", icon="✅")
         
         # Show file location
         st.sidebar.success(f"""
-        File saved locally at:
+        File saved at:
         {full_path}
         """)
         
@@ -360,6 +397,15 @@ def handle_token_validation():
 def main():
     st.title("Microsoft Graph User Report")
 
+    # Add save location settings to sidebar
+    if st.session_state.token:  # Only show when logged in
+        select_save_path()  # This will update st.session_state.save_path
+        
+        # Show current save location
+        st.sidebar.info(f"""
+        Current save location:
+        {st.session_state.save_path}
+        """)
     # Authentication Flow
     if not st.session_state.token:
         # Show login button if not in authentication process
