@@ -55,33 +55,49 @@ def select_save_path():
     """Let user select where to save files"""
     st.sidebar.markdown("### Save Location Settings")
     
-    # Option to use default Desktop path
-    use_desktop = st.sidebar.checkbox("Save to Desktop", value=True)
+    col1, col2 = st.sidebar.columns(2)
     
-    if use_desktop:
-        save_path = str(Path.home() / "Desktop")
-    else:
-        # Let user input custom path
-        save_path = st.sidebar.text_input(
+    with col1:
+        # Simple text showing current path
+        st.write("Current save path:")
+    with col2:
+        # Button to change path
+        if st.button("Change Path"):
+            st.session_state.show_path_input = True
+    
+    if 'show_path_input' not in st.session_state:
+        st.session_state.show_path_input = False
+        
+    if st.session_state.show_path_input:
+        new_path = st.sidebar.text_input(
             "Enter save path:",
             value=st.session_state.save_path,
             help="Enter the full path where you want to save files"
         )
+        
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            if st.button("Save"):
+                if os.path.exists(new_path):
+                    st.session_state.save_path = new_path
+                    st.session_state.show_path_input = False
+                    st.sidebar.success("✅ Path updated!")
+                else:
+                    try:
+                        os.makedirs(new_path, exist_ok=True)
+                        st.session_state.save_path = new_path
+                        st.session_state.show_path_input = False
+                        st.sidebar.success("✅ Created new directory!")
+                    except Exception as e:
+                        st.sidebar.error(f"❌ Could not create directory: {str(e)}")
+        with col2:
+            if st.button("Cancel"):
+                st.session_state.show_path_input = False
     
-    # Test if path exists
-    if not os.path.exists(save_path):
-        st.sidebar.error("⚠️ Path does not exist!")
-        try:
-            # Try to create the directory
-            os.makedirs(save_path, exist_ok=True)
-            st.sidebar.success("✅ Created directory successfully!")
-        except Exception as e:
-            st.sidebar.error(f"❌ Could not create directory: {str(e)}")
-            return None
+    # Always show current path
+    st.sidebar.info(f"Files will be saved to:\n{st.session_state.save_path}")
     
-    st.session_state.save_path = save_path
-    return save_path
-
+    return st.session_state.save_path
 def get_desktop_path():
     """Get the desktop path for the current user"""
     try:
@@ -103,38 +119,47 @@ def get_desktop_path():
 
 
 def save_to_local(df_batch, filename):
+    """Save dataframe to local file"""
     try:
-        # Get save path from session state or let user select
-        save_path = select_save_path()
-        if not save_path:
-            st.error("Please select a valid save location")
-            return None
-            
+        save_path = st.session_state.save_path
         full_path = os.path.join(save_path, filename)
         
         if os.path.exists(full_path):
             existing_df = pd.read_excel(full_path)
             combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
             combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
-            st.toast(f"Updated existing local file. Total records: {len(combined_df)}", icon="📤")
+            st.toast(f"Updated existing file. Total records: {len(combined_df)}", icon="📤")
         else:
             combined_df = df_batch
-            st.toast("Creating new local file", icon="📝")
-            
+            st.toast("Creating new file", icon="📝")
+        
         # Save to selected path
         combined_df.to_excel(full_path, index=False)
         st.toast(f"Successfully saved to: {filename}", icon="✅")
         
-        # Show file location
-        st.sidebar.success(f"""
-        File saved at:
-        {full_path}
-        """)
-        
         return combined_df
     except Exception as e:
-        st.toast(f"Error saving to local file: {str(e)}", icon="❌")
+        st.error(f"Error saving file: {str(e)}")
         return None
+
+# Update init_session_state
+def init_session_state():
+    defaults = {
+        'token': None,
+        'data': [],
+        'processing': False,
+        'processed_count': 0,
+        'df': None,
+        'show_report': False,
+        'authentication_in_progress': False,
+        'device_code_response': None,
+        'save_path': str(Path.home() / "Desktop"),  # Default path
+        'show_path_input': False  # For path selection UI
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 def get_last_processed_user(token):
     try:
