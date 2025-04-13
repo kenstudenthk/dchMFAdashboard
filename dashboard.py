@@ -12,6 +12,7 @@ from io import BytesIO
 import pandas as pd
 import os
 from pathlib import Path
+import traceback
 
 
 # Configure Streamlit
@@ -657,10 +658,15 @@ def main():
             
             with action_col1:
                 if st.button("Get All Users", key="get_users_button"):
-                    st.session_state.df = get_all_user_data(st.session_state.token, resume=False)
-                    if st.session_state.df is not None:
-                        st.session_state.show_report = True
-                        st.success("Data collection complete!")
+                     st.write("Button clicked - starting process...")  # Debug message
+                     df = get_all_user_data(st.session_state.token, resume=False)
+                     st.write("Got response from get_all_user_data")  # Debug message
+                     if df is not None:
+                            st.session_state.df = df
+                            st.session_state.show_report = True
+                            st.success("Data collection complete!")
+                     else:
+                            st.error("Failed to collect data")
 
             with action_col2:
                 if st.button("Resume Processing", key="resume_button"):
@@ -831,7 +837,7 @@ def get_user_details(email, token, user_id=None):
     }
     
     try:
-        st.write(f"Getting details for user: {email}")  # Debug message
+        print(f"Getting details for user: {email}")  # Debug with print instead of st.write
         
         # Get user basic info
         user_response = requests.get(
@@ -840,11 +846,11 @@ def get_user_details(email, token, user_id=None):
         )
         
         if user_response.status_code != 200:
-            st.write(f"Error getting user {email}: Status {user_response.status_code}")  # Debug message
+            print(f"Error getting user {email}: Status {user_response.status_code}")  # Debug with print
             return None
             
         user_data = user_response.json()
-        st.write(f"Got basic info for: {email}")  # Debug message
+        print(f"Got basic info for: {email}")  # Debug with print
         
         # Get MFA status using authentication/requirements
         mfa_response = requests.get(
