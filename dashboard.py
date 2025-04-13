@@ -43,22 +43,35 @@ init_session_state()
 def get_desktop_path():
     return str(Path.home() / "Desktop")
 
+
 def save_to_local(df_batch, filename):
     try:
         desktop_path = get_desktop_path()
         full_path = os.path.join(desktop_path, filename)
         
-        # If file exists, read and append
         if os.path.exists(full_path):
             existing_df = pd.read_excel(full_path)
             combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
             combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
+            st.toast(f"Updated existing local file. Total records: {len(combined_df)}", icon="📤")
         else:
             combined_df = df_batch
+            st.toast("Creating new local file", icon="📝")
             
         # Save to desktop
         combined_df.to_excel(full_path, index=False)
+        st.toast(f"Successfully saved to Desktop: {filename}", icon="✅")
+        
+        # Show file location
+        st.sidebar.success(f"""
+        File saved locally at:
+        {full_path}
+        """)
+        
         return combined_df
+    except Exception as e:
+        st.toast(f"Error saving to local file!", icon="❌")
+        return None
     except Exception as e:
         st.error(f"Error saving to local file: {e}")
         return None
@@ -183,12 +196,9 @@ def logout():
 
 def save_to_sharepoint(df_batch, filename, token):
     try:
-        # Convert DataFrame to Excel in memory
         excel_buffer = BytesIO()
         
-        # If file exists, read and append, otherwise create new
         try:
-            # Try to download existing file
             existing_file_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{filename}:/content"
             response = requests.get(
                 existing_file_url,
@@ -197,26 +207,24 @@ def save_to_sharepoint(df_batch, filename, token):
             )
             
             if response.status_code == 200:
-                # Read existing file
                 excel_buffer.write(response.content)
                 existing_df = pd.read_excel(excel_buffer)
-                # Concatenate with new data
                 combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
-                # Drop duplicates based on user ID or email
                 combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
+                st.toast(f"Updated existing SharePoint file. Total records: {len(combined_df)}", icon="📤")
             else:
                 combined_df = df_batch
+                st.toast("Creating new SharePoint file", icon="📝")
                 
         except Exception as e:
             print(f"No existing file found or error reading file: {e}")
             combined_df = df_batch
+            st.toast("Creating new SharePoint file", icon="📝")
         
-        # Save combined DataFrame to buffer
         excel_buffer = BytesIO()
         combined_df.to_excel(excel_buffer, index=False)
         excel_buffer.seek(0)
         
-        # Upload to OneDrive/SharePoint
         upload_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{filename}:/content"
         response = requests.put(
             upload_url,
@@ -228,13 +236,14 @@ def save_to_sharepoint(df_batch, filename, token):
         )
         
         if response.status_code in [200, 201]:
+            st.toast(f"Successfully saved to SharePoint: {filename}", icon="✅")
             return combined_df
         else:
-            st.error(f"Failed to save file: {response.text}")
+            st.toast(f"Failed to save to SharePoint!", icon="❌")
             return None
             
     except Exception as e:
-        st.error(f"Error saving to SharePoint: {e}")
+        st.toast(f"Error saving to SharePoint!", icon="❌")
         return None
 
 def get_all_user_data(token, resume=False):
@@ -242,19 +251,17 @@ def get_all_user_data(token, resume=False):
         all_users = []
         batch_size = 100
         
-        # If resuming, get the last processed user
-        last_processed_df = None
         if resume:
             last_processed_df = get_last_processed_user(token)
             if last_processed_df is not None:
                 all_users = last_processed_df.to_dict('records')
-                st.info(f"Resuming from {len(all_users)} previously processed users")
+                st.toast(f"Found {len(all_users)} previously processed users", icon="📂")
         
-        # Determine the starting point
+        # Determine starting point
         if resume and last_processed_df is not None and not last_processed_df.empty:
-            # Get the last processed user's ID or email
             last_user = last_processed_df.iloc[-1]
             next_link = f"https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled&$filter=userPrincipalName gt '{last_user['userPrincipalName']}'"
+            st.toast(f"Resuming from user: {last_user['userPrincipalName']}", icon="▶️")
         else:
             next_link = "https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled"
         
@@ -272,60 +279,76 @@ def get_all_user_data(token, resume=False):
                 batch_users = data.get('value', [])
                 all_users.extend(batch_users)
                 
-                # Convert batch to DataFrame
                 df_batch = pd.DataFrame(batch_users)
                 
                 if len(df_batch) > 0:
-                    # Save to both SharePoint and local
                     filename = "user_report.xlsx"
+                    
+                    # Save to SharePoint
                     sharepoint_df = save_to_sharepoint(df_batch, filename, token)
+                    
+                    # Save to local
                     local_df = save_to_local(df_batch, filename)
                     
                     # Use SharePoint data for display (or local if SharePoint fails)
                     display_df = sharepoint_df if sharepoint_df is not None else local_df
                     
                     if display_df is not None:
-                        # Update progress
-                        progress_container.write(f"Processed {len(all_users)} users. Data saved to SharePoint and local desktop.")
+                        progress_container.write(f"""
+                        ### Progress Update
+                        - Total users processed: {len(all_users)}
+                        - Current batch size: {len(df_batch)}
+                        - Latest save timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                        """)
                         data_container.dataframe(display_df)
                 
                 next_link = data.get('@odata.nextLink', None)
+                
+                if not next_link:
+                    st.toast("Data collection completed! 🎉", icon="🏁")
             else:
-                st.error("Failed to fetch users")
+                st.toast("Failed to fetch users!", icon="❌")
                 break
                 
-        # Convert final result to DataFrame
         df = pd.DataFrame(all_users)
         return df
         
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.toast(f"Error in data processing!", icon="❌")
         return None
 
-# In your main app code, modify the action buttons section:
-    with report_container:
+# Main app layout
+def main():
+    if 'show_report' in st.session_state and st.session_state.show_report:
+        st.sidebar.markdown("""
+        ### File Locations
+        - SharePoint/OneDrive: root folder
+        - Local: Desktop folder
+        """)
+
+    with st.container() as report_container:
         st.write("---")
-    # Action buttons
-    action_col1, action_col2, action_col3 = st.columns(3)
-    
-    with action_col1:
-        if st.button("Get All Users", key="get_users_button"):
-            st.session_state.df = get_all_user_data(st.session_state.token, resume=False)
-            if st.session_state.df is not None:
-                st.session_state.show_report = True
-                st.success("Data collection complete!")
+        # Action buttons
+        action_col1, action_col2, action_col3 = st.columns(3)
+        
+        with action_col1:
+            if st.button("Get All Users", key="get_users_button"):
+                st.session_state.df = get_all_user_data(st.session_state.token, resume=False)
+                if st.session_state.df is not None:
+                    st.session_state.show_report = True
+                    st.success("Data collection complete!")
 
-    with action_col2:
-        if st.button("Resume Processing", key="resume_button"):
-            st.session_state.df = get_all_user_data(st.session_state.token, resume=True)
-            if st.session_state.df is not None:
-                st.session_state.show_report = True
-                st.success("Resume processing complete!")
+        with action_col2:
+            if st.button("Resume Processing", key="resume_button"):
+                st.session_state.df = get_all_user_data(st.session_state.token, resume=True)
+                if st.session_state.df is not None:
+                    st.session_state.show_report = True
+                    st.success("Resume processing complete!")
 
-    with action_col3:
-        if st.button("Logout", key="logout_button"):
-            st.session_state.token = None
-            st.rerun()
+        with action_col3:
+            if st.button("Logout", key="logout_button"):
+                st.session_state.token = None
+                st.rerun()
 
 def get_device_code():
     """Get device code for authentication"""
@@ -505,8 +528,6 @@ def get_all_user_data(token):
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         return None
-
-# Add this function for getting detailed user information
 # Add this function for getting detailed user information
 def get_user_details(email, token):
     headers = {
@@ -710,7 +731,7 @@ if not st.session_state.token:
             expires_in = int(st.session_state.device_code_response.get('expires_in', 900))
             start_time = time.time()
             
-            while time.time() - start_time < expires_in:
+            while time.time() - start_tim   e < expires_in:
                 token_response = poll_for_token(st.session_state.device_code_response['device_code'])
                 if token_response:
                     st.session_state.token = token_response['access_token']
@@ -818,3 +839,6 @@ def logout():
     cleanup_cache()
     st.session_state.clear()
     st.success("👋 Logged out successfully!")            
+
+if __name__ == "__main__":
+    main()
