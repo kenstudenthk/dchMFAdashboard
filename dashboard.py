@@ -51,7 +51,23 @@ init_session_state()
 @st.cache_resource(ttl=21600)  # 6 hours in seconds
 
 def get_desktop_path():
-    return str(Path.home() / "Desktop")
+    """Get the desktop path for the current user"""
+    try:
+        # Using pathlib for cross-platform compatibility
+        desktop_path = str(Path.home() / "Desktop")
+        
+        # Specific path for your Mac
+        if not os.path.exists(desktop_path):
+            desktop_path = "/Users/kilson/Desktop"
+            
+        if not os.path.exists(desktop_path):
+            st.error("Could not find Desktop path")
+            return None
+            
+        return desktop_path
+    except Exception as e:
+        st.error(f"Error getting desktop path: {str(e)}")
+        return None
 
 
 def save_to_local(df_batch, filename):
