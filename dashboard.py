@@ -32,7 +32,8 @@ def init_session_state():
         'show_report': False,
         'authentication_in_progress': False,
         'device_code_response': None,
-        'save_path': str(Path.home() / "Desktop")  # Default path
+        'save_path': get_desktop_path(),
+        'show_path_input': False
     }
     
     for key, value in defaults.items():
