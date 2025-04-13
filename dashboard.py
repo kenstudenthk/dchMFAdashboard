@@ -43,7 +43,10 @@ def init_session_state():
         'authentication_in_progress': False,
         'device_code_response': None,
         'save_path': get_default_save_path(),
-        'show_path_input': False
+        'show_path_input': False,
+        'save_to_sharepoint': False,
+        'sharepoint_site': '',
+        'sharepoint_folder': '',
     }
     
     for key, value in defaults.items():
@@ -313,57 +316,134 @@ def check_auth() -> bool:
     return 'token' in st.session_state and st.session_state.token is not None
 
 
-def save_to_sharepoint(df_batch, filename, token):
+def save_to_sharepoint(df_batch, site_name, folder_path, filename):
+    """Save dataframe to SharePoint"""
     try:
-        excel_buffer = BytesIO()
+        # Get SharePoint site
+        site = get_sharepoint_site(site_name)
+        if not site:
+            st.error("❌ Could not connect to SharePoint site")
+            return None
+
+        # Get the folder
+        folder = site.get_folder_by_server_relative_url(folder_path)
         
-        try:
-            existing_file_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{filename}:/content"
-            response = requests.get(
-                existing_file_url,
-                headers={"Authorization": f"Bearer {token}"},
-                stream=True
-            )
-            
-            if response.status_code == 200:
-                excel_buffer.write(response.content)
-                existing_df = pd.read_excel(excel_buffer)
-                combined_df = pd.concat([existing_df, df_batch], ignore_index=True)
-                combined_df = combined_df.drop_duplicates(subset=['userPrincipalName'], keep='last')
-                st.toast(f"Updated existing SharePoint file. Total records: {len(combined_df)}", icon="📤")
-            else:
-                combined_df = df_batch
-                st.toast("Creating new SharePoint file", icon="📝")
-                
-        except Exception as e:
-            print(f"No existing file found or error reading file: {e}")
-            combined_df = df_batch
-            st.toast("Creating new SharePoint file", icon="📝")
+        # Create a temporary Excel file
+        temp_file = "temp_upload.xlsx"
+        df_batch.to_excel(temp_file, index=False)
         
-        excel_buffer = BytesIO()
-        combined_df.to_excel(excel_buffer, index=False)
-        excel_buffer.seek(0)
+        # Read the file content
+        with open(temp_file, 'rb') as file_content:
+            content = file_content.read()
+
+        # Upload to SharePoint
+        folder.upload_file(filename, content)
         
-        upload_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{filename}:/content"
-        response = requests.put(
-            upload_url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            },
-            data=excel_buffer.getvalue()
-        )
+        # Clean up temp file
+        os.remove(temp_file)
         
-        if response.status_code in [200, 201]:
-            st.toast(f"Successfully saved to SharePoint: {filename}", icon="✅")
-            return combined_df
-        else:
-            st.toast(f"Failed to save to SharePoint!", icon="❌")
+        st.success(f"✅ Successfully saved to SharePoint: {filename}")
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Error saving to SharePoint: {str(e)}")
+        return None
+
+def get_sharepoint_site(site_name):
+    """Get SharePoint site using Graph API"""
+    try:
+        # Get access token from session state
+        token = st.session_state.token
+        
+        if not token:
+            st.error("❌ No access token available")
             return None
             
+        # Set up headers for Graph API
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Get SharePoint site ID
+        site_url = f"https://graph.microsoft.com/v1.0/sites/{site_name}"
+        response = requests.get(site_url, headers=headers)
+        
+        if response.status_code != 200:
+            st.error(f"❌ Failed to get SharePoint site: {response.text}")
+            return None
+            
+        site_data = response.json()
+        return site_data
+        
     except Exception as e:
-        st.toast(f"Error saving to SharePoint!", icon="❌")
+        st.error(f"❌ Error connecting to SharePoint: {str(e)}")
         return None
+
+# Add this to your main processing function where you save the files
+def save_files(df_batch):
+    try:
+        # Local save
+        filename = f"MFA_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        local_save = save_to_local(df_batch, filename)
+        
+        # SharePoint save (if configured)
+        if st.session_state.get('save_to_sharepoint', False):
+            sharepoint_site = st.session_state.get('sharepoint_site')
+            sharepoint_folder = st.session_state.get('sharepoint_folder')
+            
+            if sharepoint_site and sharepoint_folder:
+                sharepoint_save = save_to_sharepoint(
+                    df_batch,
+                    sharepoint_site,
+                    sharepoint_folder,
+                    filename
+                )
+                if sharepoint_save:
+                    st.success("✅ Saved to both local and SharePoint")
+                else:
+                    st.warning("⚠️ Saved locally but SharePoint save failed")
+            else:
+                st.warning("⚠️ SharePoint settings not configured")
+        
+        return local_save
+        
+    except Exception as e:
+        st.error(f"❌ Error saving files: {str(e)}")
+        return None
+
+# Add SharePoint settings to your sidebar
+def show_sharepoint_settings():
+    st.sidebar.markdown("### SharePoint Settings")
+    
+    # Toggle for SharePoint save
+    enable_sharepoint = st.sidebar.checkbox(
+        "Save to SharePoint",
+        value=st.session_state.get('save_to_sharepoint', False),
+        key='enable_sharepoint'
+    )
+    
+    if enable_sharepoint:
+        # SharePoint site input
+        sharepoint_site = st.sidebar.text_input(
+            "SharePoint Site",
+            value=st.session_state.get('sharepoint_site', ''),
+            help="Example: contoso.sharepoint.com:/sites/YourSiteName"
+        )
+        
+        # SharePoint folder input
+        sharepoint_folder = st.sidebar.text_input(
+            "SharePoint Folder Path",
+            value=st.session_state.get('sharepoint_folder', ''),
+            help="Example: Shared Documents/MFA Reports"
+        )
+        
+        # Save settings to session state
+        st.session_state.save_to_sharepoint = True
+        st.session_state.sharepoint_site = sharepoint_site
+        st.session_state.sharepoint_folder = sharepoint_folder
+    else:
+        st.session_state.save_to_sharepoint = False
 
 def refresh_token_with_device_code():
     """Get a new token using device code flow"""
@@ -483,7 +563,7 @@ def main():
     # Add save location settings to sidebar
     if st.session_state.token:  # Only show when logged in
         handle_save_path() # This will update st.session_state.save_path
-        
+        show_sharepoint_settings()  # SharePoint settings
         # Show current save location
         st.sidebar.info(f"""
         Current save location:
