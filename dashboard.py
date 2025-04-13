@@ -825,12 +825,6 @@ def process_users_chunk(users_chunk, token, headers):
 
 # Add this function for getting detailed user information
 
-
-
-
-執行
-
-複製
 def get_user_details(email, token, user_id=None):
     headers = {
         'Authorization': f'Bearer {token}',
