@@ -905,12 +905,16 @@ def get_user_details(email, token):
         st.error(f"Error fetching user details: {str(e)}")
         return None
 
-def get_all_user_data(token):
+def get_all_user_data(token, resume=False):
     """Get all users with detailed information"""
     try:
         users = []
         next_link = 'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,accountEnabled,createdDateTime,signInActivity'
         
+        # Resume from last position if requested
+        if resume and 'last_position' in st.session_state:
+            next_link = st.session_state.last_position
+
         with st.progress(0) as progress_bar:
             while next_link:
                 response = requests.get(next_link, headers={'Authorization': f'Bearer {token}'})
@@ -926,18 +930,79 @@ def get_all_user_data(token):
                     if user_details:
                         users.append(user_details)
                 
+                # Save position in case of need to resume
+                st.session_state.last_position = next_link
+                
                 next_link = data.get('@odata.nextLink')
                 progress = min(len(users) / 100, 1.0)
                 progress_bar.progress(progress)
         
+        # Clear last position after successful completion
+        if 'last_position' in st.session_state:
+            del st.session_state.last_position
+        
         # Convert to DataFrame
         df = pd.DataFrame(users)
+        
+        # Add filtered version to session state
+        if df is not None:
+            filtered_df = filter_data(df)
+            st.session_state.filtered_df = filtered_df
+            
+            # Add summary stats to session state
+            st.session_state.total_users = len(df)
+            st.session_state.filtered_users = len(filtered_df)
+        
         return df
         
     except Exception as e:
         st.error(f"Error fetching all users: {str(e)}")
         return None
 
+# Then in your main app section:
+if 'show_report' in st.session_state and st.session_state.show_report:
+    st.write("### Report Summary")
+    st.write(f"Total Users: {st.session_state.total_users}")
+    st.write(f"Users meeting criteria: {st.session_state.filtered_users}")
+    
+    # Show filtered data
+    st.write("### Filtered Results")
+    st.dataframe(st.session_state.filtered_df)
+    
+    # Export options
+    if len(st.session_state.filtered_df) > 0:
+        col1, col2 = st.columns(2)
+        with col1:
+            # Excel export
+            excel_buffer = io.BytesIO()
+            st.session_state.filtered_df.to_excel(excel_buffer, index=False)
+            excel_data = excel_buffer.getvalue()
+            
+            st.download_button(
+                label="Download Report (Excel)",
+                data=excel_data,
+                file_name=f"MFA_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+        with col2:
+            # CSV export
+            csv = st.session_state.filtered_df.to_csv(index=False)
+            st.download_button(
+                label="Download Report (CSV)",
+                data=csv,
+                file_name=f"MFA_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+
+# Add a clear button if needed
+    if st.button("Clear Report"):
+        st.session_state.show_report = False
+        if 'filtered_df' in st.session_state:
+            del st.session_state.filtered_df
+        if 'df' in st.session_state:
+            del st.session_state.df
+        st.rerun()
 def filter_data(df):
     """Filter for active accounts with disabled MFA and E1/E3 license"""
     filtered_df = df[
@@ -983,7 +1048,6 @@ def process_and_export(df):
                 file_name=filename,
                 mime="text/csv"
             )
-
 
 def check_token_validity(token):
     """Check if the token is valid by making a test request"""
