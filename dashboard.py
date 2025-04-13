@@ -825,9 +825,7 @@ def process_users_chunk(users_chunk, token, headers):
 
 # Add this function for getting detailed user information
 
-執行
 
-複製
 def get_user_details(email, token):
     headers = {
         'Authorization': f'Bearer {token}',
@@ -847,31 +845,17 @@ def get_user_details(email, token):
             
         user_data = user_response.json()
         
-        # Get MFA status
+        # Get MFA status using authentication/requirements
         mfa_response = requests.get(
-            f'https://graph.microsoft.com/beta/users/{user_data["id"]}/authentication/strongAuthenticationRequirements',
+            f'https://graph.microsoft.com/beta/users/{user_data["id"]}/authentication/requirements',
             headers=headers
         )
         
         mfa_status = 'Disabled'
         if mfa_response.status_code == 200:
             mfa_data = mfa_response.json()
-            if "value" in mfa_data and len(mfa_data["value"]) > 0:
-                mfa_status = mfa_data["value"][0]["perUserMfaState"]
+            mfa_status = 'Enabled' if mfa_data.get('state') == 'enabled' else 'Disabled'
 
-        # Get authentication methods
-        auth_methods_response = requests.get(
-            f'https://graph.microsoft.com/beta/users/{user_data["id"]}/authentication/methods',
-            headers=headers
-        )
-        
-        mfa_methods = []
-        if auth_methods_response.status_code == 200:
-            auth_methods = auth_methods_response.json().get('value', [])
-            for method in auth_methods:
-                method_type = method.get('@odata.type', '').split('.')[-1]
-                mfa_methods.append(method_type)
-        
         # Get license details
         license_response = requests.get(
             f'https://graph.microsoft.com/v1.0/users/{user_data["id"]}/licenseDetails',
@@ -879,39 +863,40 @@ def get_user_details(email, token):
         )
         
         licenses = []
+        has_required_license = False
         if license_response.status_code == 200:
             for license in license_response.json().get('value', []):
                 sku = license.get('skuPartNumber', '')
-                if 'ENTERPRISEPACK' in sku:
+                if sku == 'ENTERPRISEPACK':
                     licenses.append('Office365 E3')
-                elif 'STANDARDPACK' in sku:
+                    has_required_license = True
+                elif sku == 'STANDARDPACK':
                     licenses.append('Office365 E1')
+                    has_required_license = True
                 else:
-                    licenses.append(sku)  # Add other license types
+                    licenses.append(sku)
 
-        # Get last sign-in activity
+        # Get sign-in activity and format dates
         signin_activity = user_data.get('signInActivity', {})
         last_signin = signin_activity.get('lastSignInDateTime', 'Never')
-        last_non_interactive = signin_activity.get('lastNonInteractiveSignInDateTime', 'Never')
+        if last_signin != 'Never':
+            last_signin = datetime.strptime(last_signin, '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d %H:%M:%S')
+
+        created_date = user_data.get('createdDateTime', '')
+        if created_date:
+            created_date = datetime.strptime(created_date, '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d %H:%M:%S')
         
         # Compile detailed user info
         user_details = {
             'Display Name': user_data.get('displayName', ''),
-            'Email': user_data.get('userPrincipalName', ''),
             'Mail': user_data.get('mail', ''),
-            'Job Title': user_data.get('jobTitle', ''),
-            'Department': user_data.get('department', ''),
-            'Office Location': user_data.get('officeLocation', ''),
-            'Business Phone': user_data.get('businessPhones', [''])[0] if user_data.get('businessPhones') else '',
-            'Mobile Phone': user_data.get('mobilePhone', ''),
+            'UPN': user_data.get('userPrincipalName', ''),
+            'Creation Date': created_date,
+            'Last Interactive Sign In': last_signin,
             'Account Status': 'Active' if user_data.get('accountEnabled', False) else 'Disabled',
             'MFA Status': mfa_status,
-            'MFA Methods': ', '.join(mfa_methods) if mfa_methods else 'None',
-            'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
-            'Last Interactive Sign In': last_signin,
-            'Last Non-Interactive Sign In': last_non_interactive,
-            'Created Date': user_data.get('createdDateTime', ''),
-            'Account Type': 'Cloud' if user_data.get('onPremisesSyncEnabled') is None else 'Synced from On-Premises'
+            'Has E1/E3 License': 'Yes' if has_required_license else 'No',
+            'Assigned Licenses': ', '.join(licenses) if licenses else 'No License'
         }
         
         return user_details
@@ -924,7 +909,7 @@ def get_all_user_data(token):
     """Get all users with detailed information"""
     try:
         users = []
-        next_link = f'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,officeLocation,businessPhones,mobilePhone,accountEnabled,createdDateTime,signInActivity,onPremisesSyncEnabled'
+        next_link = 'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,accountEnabled,createdDateTime,signInActivity'
         
         with st.progress(0) as progress_bar:
             while next_link:
@@ -942,7 +927,7 @@ def get_all_user_data(token):
                         users.append(user_details)
                 
                 next_link = data.get('@odata.nextLink')
-                progress = min(len(users) / 100, 1.0)  # Assuming max 100 users
+                progress = min(len(users) / 100, 1.0)
                 progress_bar.progress(progress)
         
         # Convert to DataFrame
@@ -952,41 +937,52 @@ def get_all_user_data(token):
     except Exception as e:
         st.error(f"Error fetching all users: {str(e)}")
         return None
-    
+
 def filter_data(df):
-    st.write("### Filter Users")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        account_status = st.multiselect(
-            "Account Status",
-            options=['Active', 'Disabled'],
-            default=['Active', 'Disabled']
-        )
-    
-    with col2:
-        mfa_status = st.multiselect(
-            "MFA Status",
-            options=sorted(df['MFA Status'].unique()),  # Dynamic options based on actual data
-            default=sorted(df['MFA Status'].unique())
-        )
-    
-    with col3:
-        license_filter = st.text_input(
-            "License Contains (e.g., E3, E1)",
-            ""
-        )
-    
-    # Apply filters
+    """Filter for active accounts with disabled MFA and E1/E3 license"""
     filtered_df = df[
         (df['Account Status'] == 'Active') & 
-        (df['MFA Status'] == 'Disabled')
+        (df['MFA Status'] == 'Disabled') &
+        (df['Has E1/E3 License'] == 'Yes')
     ]
     
-    if license_filter:
-        filtered_df = filtered_df[filtered_df['Assigned Licenses'].str.contains(license_filter, case=False, na=False)]
+    # Keep only required columns in specified order
+    columns = [
+        'Display Name',
+        'Mail',
+        'UPN',
+        'Creation Date',
+        'Last Interactive Sign In'
+    ]
     
-    return filtered_df
+    return filtered_df[columns]
+
+# Add to your main processing section:
+def process_and_export(df):
+    if df is not None:
+        filtered_df = filter_data(df)
+        
+        # Show summary
+        st.write("### Summary")
+        st.write(f"Total Users: {len(df)}")
+        st.write(f"Users meeting criteria: {len(filtered_df)}")
+        
+        # Show filtered data
+        st.write("### Filtered Results")
+        st.dataframe(filtered_df)
+        
+        # Export options
+        if len(filtered_df) > 0:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"MFA_Report_{timestamp}.csv"
+            
+            csv = filtered_df.to_csv(index=False)
+            st.download_button(
+                label="Download Report (CSV)",
+                data=csv,
+                file_name=filename,
+                mime="text/csv"
+            )
 
 
 def check_token_validity(token):
