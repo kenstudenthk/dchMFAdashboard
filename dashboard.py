@@ -823,8 +823,7 @@ def process_users_chunk(users_chunk, token, headers):
     return chunk_data
 
 
-# Add this function for getting detailed user information
-
+# Add this function for getting detailed user informatio
 def get_user_details(email, token, user_id=None):
     headers = {
         'Authorization': f'Bearer {token}',
@@ -832,17 +831,20 @@ def get_user_details(email, token, user_id=None):
     }
     
     try:
-        # Get user basic info (using beta endpoint for signInActivity)
+        st.write(f"Getting details for user: {email}")  # Debug message
+        
+        # Get user basic info
         user_response = requests.get(
-            f'https://graph.microsoft.com/beta/users/{user_id}',  # Use user_id instead of email
+            f'https://graph.microsoft.com/beta/users/{user_id}',
             headers=headers
         )
         
         if user_response.status_code != 200:
-            print(f"Error getting user {email}: {user_response.status_code}")
+            st.write(f"Error getting user {email}: Status {user_response.status_code}")  # Debug message
             return None
             
         user_data = user_response.json()
+        st.write(f"Got basic info for: {email}")  # Debug message
         
         # Get MFA status using authentication/requirements
         mfa_response = requests.get(
@@ -910,15 +912,25 @@ def get_all_user_data(token, resume=False):
         users = []
         next_link = 'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,accountEnabled,createdDateTime,signInActivity'
         
+                # Test API connection first
+        test_response = requests.get(
+            'https://graph.microsoft.com/v1.0/users?$top=1',
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        st.write(f"Test API call status: {test_response.status_code}")  # Debug message
+        
         progress_bar = st.progress(0)
+        st.write(f"Fetching batch of users from: {next_link}") 
         while next_link:
             response = requests.get(next_link, headers={'Authorization': f'Bearer {token}'})
             if response.status_code != 200:
                 st.error("Failed to fetch users")
+                st.write(f"Error response: {response.text}")  # Debug message
                 return None
             
             data = response.json()
             batch = data.get('value', [])
+            st.write(f"Retrieved {len(batch)} users in this batch")  # Debug message
             
             for user in batch:
                 user_details = get_user_details(
@@ -932,16 +944,20 @@ def get_all_user_data(token, resume=False):
             next_link = data.get('@odata.nextLink')
             progress = min(len(users) / 100, 1.0)
             progress_bar.progress(progress)
+            
+            st.write(f"Processed {len(users)} users so far")  # Debug message
+            
         
         if users:
             df = pd.DataFrame(users)
+            st.write(f"Created DataFrame with {len(df)} rows")  # Debug message
             return df
         else:
             st.warning("No users found")
             return None
-        
     except Exception as e:
         st.error(f"Error fetching all users: {str(e)}")
+        st.write(f"Full error: {traceback.format_exc()}")  # Debug message
         return None
 
 # Then in your main app section:
