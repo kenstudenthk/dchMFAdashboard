@@ -824,6 +824,10 @@ def process_users_chunk(users_chunk, token, headers):
 
 
 # Add this function for getting detailed user information
+
+執行
+
+複製
 def get_user_details(email, token):
     headers = {
         'Authorization': f'Bearer {token}',
@@ -831,7 +835,7 @@ def get_user_details(email, token):
     }
     
     try:
-        # Get user basic info
+        # Get user basic info (using beta endpoint for signInActivity)
         user_response = requests.get(
             f'https://graph.microsoft.com/beta/users/{email}',
             headers=headers
@@ -854,6 +858,19 @@ def get_user_details(email, token):
             mfa_data = mfa_response.json()
             if "value" in mfa_data and len(mfa_data["value"]) > 0:
                 mfa_status = mfa_data["value"][0]["perUserMfaState"]
+
+        # Get authentication methods
+        auth_methods_response = requests.get(
+            f'https://graph.microsoft.com/beta/users/{user_data["id"]}/authentication/methods',
+            headers=headers
+        )
+        
+        mfa_methods = []
+        if auth_methods_response.status_code == 200:
+            auth_methods = auth_methods_response.json().get('value', [])
+            for method in auth_methods:
+                method_type = method.get('@odata.type', '').split('.')[-1]
+                mfa_methods.append(method_type)
         
         # Get license details
         license_response = requests.get(
@@ -869,6 +886,13 @@ def get_user_details(email, token):
                     licenses.append('Office365 E3')
                 elif 'STANDARDPACK' in sku:
                     licenses.append('Office365 E1')
+                else:
+                    licenses.append(sku)  # Add other license types
+
+        # Get last sign-in activity
+        signin_activity = user_data.get('signInActivity', {})
+        last_signin = signin_activity.get('lastSignInDateTime', 'Never')
+        last_non_interactive = signin_activity.get('lastNonInteractiveSignInDateTime', 'Never')
         
         # Compile detailed user info
         user_details = {
@@ -882,8 +906,10 @@ def get_user_details(email, token):
             'Mobile Phone': user_data.get('mobilePhone', ''),
             'Account Status': 'Active' if user_data.get('accountEnabled', False) else 'Disabled',
             'MFA Status': mfa_status,
+            'MFA Methods': ', '.join(mfa_methods) if mfa_methods else 'None',
             'Assigned Licenses': ', '.join(licenses) if licenses else 'No License',
-            'Last Sign In': user_data.get('signInActivity', {}).get('lastSignInDateTime', 'Never'),
+            'Last Interactive Sign In': last_signin,
+            'Last Non-Interactive Sign In': last_non_interactive,
             'Created Date': user_data.get('createdDateTime', ''),
             'Account Type': 'Cloud' if user_data.get('onPremisesSyncEnabled') is None else 'Synced from On-Premises'
         }
@@ -894,72 +920,38 @@ def get_user_details(email, token):
         st.error(f"Error fetching user details: {str(e)}")
         return None
 
-# In your main app section, replace the else block after checking token with:
-    else:
-    # Add a container for the top right search
-        with st.container():
-            col1, col2, col3 = st.columns([6, 2, 2])
-            with col1:
-                st.write("Currently logged in")
-            with col2:
-                search_email = st.text_input("Search by Email", key="search_email")
-            with col3:
-                if st.button("Search User"):
-                    if search_email:
-                        with st.spinner("Fetching user details..."):
-                            user_details = get_user_details(search_email, st.session_state.token)
-                            if user_details:
-                                # Create a popup dialog with user details
-                                with st.expander("User Details", expanded=True):
-                                    st.write("### User Information")
-                                    for key, value in user_details.items():
-                                        col1, col2 = st.columns([1, 3])
-                                        with col1:
-                                            st.write(f"**{key}:**")
-                                        with col2:
-                                            st.write(value)
-    
-    # Your existing code for Get All Users and Logout buttons
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Get All Users"):
-            df = get_all_user_data(st.session_state.token)
-            if df is not None:
-                st.write("### All Users Report")
-                st.write(f"Total Users: {len(df)}")
-                st.dataframe(df)
+def get_all_user_data(token):
+    """Get all users with detailed information"""
+    try:
+        users = []
+        next_link = f'https://graph.microsoft.com/beta/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,officeLocation,businessPhones,mobilePhone,accountEnabled,createdDateTime,signInActivity,onPremisesSyncEnabled'
+        
+        with st.progress(0) as progress_bar:
+            while next_link:
+                response = requests.get(next_link, headers={'Authorization': f'Bearer {token}'})
+                if response.status_code != 200:
+                    st.error("Failed to fetch users")
+                    return None
                 
-                # Show filtered report
-                st.write("### Filtered Report")
-                filtered_df = filter_data(df)
-                st.write(f"Filtered Users: {len(filtered_df)}")
-                st.dataframe(filtered_df)
+                data = response.json()
+                batch = data.get('value', [])
                 
-                # Export options
-                st.write("### Export Options")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    if st.button("Export All Users (Excel)"):
-                        df.to_excel("all_users_report.xlsx", index=False)
-                        st.success("Exported all users to Excel!")
-                with col2:
-                    if st.button("Export All Users (CSV)"):
-                        df.to_csv("all_users_report.csv", index=False)
-                        st.success("Exported all users to CSV!")
-                with col3:
-                    if st.button("Export Filtered Users (Excel)"):
-                        filtered_df.to_excel("filtered_users_report.xlsx", index=False)
-                        st.success("Exported filtered users to Excel!")
-                with col4:
-                    if st.button("Export Filtered Users (CSV)"):
-                        filtered_df.to_csv("filtered_users_report.csv", index=False)
-                        st.success("Exported filtered users to CSV!")
-    
-    with col2:
-        if st.button("Logout"):
-            st.session_state.token = None
-            st.rerun()
+                for user in batch:
+                    user_details = get_user_details(user['userPrincipalName'], token)
+                    if user_details:
+                        users.append(user_details)
+                
+                next_link = data.get('@odata.nextLink')
+                progress = min(len(users) / 100, 1.0)  # Assuming max 100 users
+                progress_bar.progress(progress)
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(users)
+        return df
+        
+    except Exception as e:
+        st.error(f"Error fetching all users: {str(e)}")
+        return None
     
 def filter_data(df):
     st.write("### Filter Users")
@@ -987,8 +979,8 @@ def filter_data(df):
     
     # Apply filters
     filtered_df = df[
-        (df['Account Status'].isin(account_status)) &
-        (df['MFA Status'].isin(mfa_status))
+        (df['Account Status'] == 'Active') & 
+        (df['MFA Status'] == 'Disabled')
     ]
     
     if license_filter:
