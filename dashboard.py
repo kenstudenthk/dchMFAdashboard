@@ -20,12 +20,19 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-# Initialize all session state variables at the start
+
+def get_default_save_path():
+    """Get default save path based on operating system"""
+    if os.name == 'nt':  # Windows
+        # Try Desktop first, fallback to Documents
+        desktop = os.path.join(os.path.expanduser('~'), 'Desktop', 'MFAReports')
+        if os.access(os.path.dirname(desktop), os.W_OK):
+            return desktop
+        return os.path.join(os.path.expanduser('~'), 'Documents', 'MFAReports')
+    else:  # Mac/Linux
+        return os.path.join(os.path.expanduser('~'), 'Documents', 'MFAReports')
 
 def init_session_state():
-    # Get user's Documents folder as default (more likely to have write permissions)
-    default_path = os.path.expanduser("~/Documents/MFAReports")
-    
     defaults = {
         'token': None,
         'data': [],
@@ -35,7 +42,7 @@ def init_session_state():
         'show_report': False,
         'authentication_in_progress': False,
         'device_code_response': None,
-        'save_path': default_path,  # Direct path definition
+        'save_path': get_default_save_path(),
         'show_path_input': False
     }
     
@@ -103,6 +110,10 @@ def select_save_path():
     
     return st.session_state.save_path
 def get_desktop_path():
+/*************  ✨ Windsurf Command ⭐  *************/
+    """Return the path to the user's desktop directory."""
+    
+/*******  80d8769f-7318-4f6d-8c64-643b25c8af35  *******/
     return str(Path.home() / "Desktop")
 
 # Add this function to handle path management
@@ -124,13 +135,19 @@ def handle_save_path():
         
     # Show path input if requested
     if st.session_state.get('show_path_input', False):
+        # Show different help text based on OS
+        if os.name == 'nt':
+            help_text = "Example: C:\\Users\\YourName\\Documents\\MFAReports"
+        else:
+            help_text = "Example: ~/Documents/MFAReports"
+            
         new_path = st.sidebar.text_input(
             "Enter new save path:",
             value=st.session_state.save_path,
-            help="Example: ~/Documents/MFAReports or /Users/yourusername/Documents/MFAReports"
+            help=help_text
         )
         
-        # Expand user directory if ~ is used
+        # Expand user directory if ~ is used (works on both Windows and Mac)
         new_path = os.path.expanduser(new_path)
         
         col1, col2 = st.sidebar.columns(2)
@@ -186,7 +203,6 @@ def save_to_local(df_batch, filename):
     except Exception as e:
         st.error(f"❌ Error saving file: {str(e)}")
         return None
-
 # Update init_session_state
 def init_session_state():
     defaults = {
