@@ -14,6 +14,23 @@ import os
 from pathlib import Path
 import traceback
 
+# At the start of your script, after imports
+def ensure_save_path():
+    default_path = get_default_save_path()
+    try:
+        os.makedirs(default_path, exist_ok=True)
+        test_file = os.path.join(default_path, 'test.txt')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        return default_path
+    except Exception as e:
+        st.error(f"Cannot access default save path: {str(e)}")
+        return None
+
+# Call this early in your main function
+if 'save_path' not in st.session_state:
+    st.session_state.save_path = ensure_save_path()
 
 # Configure Streamlit
 st.set_page_config(
@@ -656,17 +673,29 @@ def main():
             st.write("---")
             action_col1, action_col2, action_col3 = st.columns(3)
             
-            with action_col1:
-                if st.button("Get All Users", key="get_users_button"):
-                     st.write("Button clicked - starting process...")  # Debug message
-                     df = get_all_user_data(st.session_state.token, resume=False)
-                     st.write("Got response from get_all_user_data")  # Debug message
-                     if df is not None:
-                            st.session_state.df = df
-                            st.session_state.show_report = True
-                            st.success("Data collection complete!")
-                     else:
-                            st.error("Failed to collect data")
+        with action_col1:
+            if st.button("Get All Users", key="get_users_button"):
+                st.write("Button clicked - starting process...")  # Debug message
+                df = get_all_user_data(st.session_state.token, resume=False)
+                if df is not None:
+                    # Generate filename with timestamp
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    filename = f"MFA_Report_{timestamp}.xlsx"
+                    
+                    # Save the data using your existing save_to_local function
+                    saved_df = save_to_local(df, filename)
+                    
+                    if saved_df is not None:
+                        st.session_state.df = saved_df
+                        st.session_state.show_report = True
+                        filtered_df = filter_data(saved_df)
+                        st.session_state.filtered_df = filtered_df
+                        st.session_state.total_users = len(saved_df)
+                        st.session_state.filtered_users = len(filtered_df)
+                    else:
+                        st.error("Failed to save the report")
+                else:
+                    st.error("Failed to collect data")
 
             with action_col2:
                 if st.button("Resume Processing", key="resume_button"):
